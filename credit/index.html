@@ -1,0 +1,457 @@
+<!DOCTYPE html>
+<html lang="vi" data-theme="dark">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="theme-color" content="#09090b" id="meta-theme-color" />
+  <meta name="description" content="GOSU Credit Manager — Theo dõi credit Dreamina AI theo thời gian thực cho Team Media GOSU." />
+  <title>GOSU Credit · Dreamina AI</title>
+  <link rel="icon" type="image/svg+xml" href="./favicon.svg" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="./styles.css" />
+  <script>
+    // Apply saved theme before first paint to prevent flash
+    (function () {
+      try {
+        var params = new URLSearchParams(window.location.search);
+        var qp = (params.get('theme') || '').toLowerCase();
+        var saved = qp === 'light' || qp === 'dark' ? qp : localStorage.getItem('gosu_credit_theme');
+        var theme = saved === 'light' ? 'light' : 'dark';
+        document.documentElement.setAttribute('data-theme', theme);
+        var meta = document.getElementById('meta-theme-color');
+        if (meta) meta.setAttribute('content', theme === 'light' ? '#f5f5f7' : '#09090b');
+      } catch (_) {}
+    })();
+  </script>
+</head>
+<body>
+  <!-- Minimal Top Bar -->
+  <header class="topbar">
+    <div class="topbar-inner">
+      <div class="brand">
+        <div class="brand-mark" aria-hidden="true">
+          <svg width="28" height="28" viewBox="0 0 64 64" fill="none">
+            <rect x="2" y="2" width="60" height="60" rx="16" fill="#18181D" stroke="currentColor" stroke-opacity="0.16" stroke-width="2"/>
+            <path d="M44.5 23.2A14.5 14.5 0 1 0 46.5 34.5H33.5" stroke="#F5F5F7" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/>
+            <circle cx="44" cy="22" r="4.5" fill="#30D158"/>
+          </svg>
+        </div>
+        <div class="brand-text">
+          <h1 class="brand-title">GOSU Credit</h1>
+          <span class="brand-sub" id="brand-platform">Dreamina AI</span>
+        </div>
+      </div>
+
+      <div class="topbar-actions">
+        <button type="button" class="live-pill" id="live-pill" data-state="connecting" title="Trạng thái kết nối thời gian thực (nhấn để làm mới)">
+          <span class="live-dot" aria-hidden="true"></span>
+          <span id="live-pill-text">Đang kết nối...</span>
+        </button>
+
+        <button type="button" class="icon-btn" id="theme-toggle" aria-label="Đổi giao diện sáng tối" title="Đổi giao diện sáng / tối">
+          <svg id="icon-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="12" cy="12" r="4"/>
+            <path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"/>
+          </svg>
+          <svg id="icon-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" hidden>
+            <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/>
+          </svg>
+        </button>
+
+        <button type="button" class="primary-btn" id="open-update-btn">
+          <span class="unlock-dot" id="unlock-indicator" hidden aria-hidden="true"></span>
+          <span>Cập nhật</span>
+        </button>
+      </div>
+    </div>
+  </header>
+
+  <main class="container">
+    <!-- Graceful Reconnecting Banner -->
+    <div class="status-banner" id="offline-banner" hidden role="status">
+      <div class="status-banner-text">
+        <span id="offline-banner-msg">Đang kết nối máy chủ dữ liệu...</span>
+      </div>
+      <button type="button" class="text-btn" id="retry-connect-btn">Thử lại</button>
+    </div>
+
+    <!-- 1. Hero Balance & Cycle Card -->
+    <section class="hero-card" aria-label="Tổng quan số dư credit">
+      <div class="hero-meta-row">
+        <div class="account-identity">
+          <span class="account-name" id="account-name">
+            <span class="skeleton-box" style="width: 140px; height: 14px;"></span>
+          </span>
+          <span class="meta-sep" aria-hidden="true">·</span>
+          <span class="plan-tag" id="plan-name">Gói Nâng cao</span>
+        </div>
+        <span class="sync-meta" id="last-updated" title="">Đang đồng bộ...</span>
+      </div>
+
+      <div class="hero-balance-row">
+        <div class="balance-primary">
+          <span class="balance-number tabular" id="remaining-credits">
+            <span class="skeleton-box" style="width: 170px; height: 48px;"></span>
+          </span>
+          <span class="balance-total tabular" id="total-credits"></span>
+        </div>
+        <div class="balance-badge-wrap">
+          <span class="topup-pill tabular" id="topup-badge" hidden></span>
+          <span class="pct-badge tabular" id="remaining-pct-badge" data-level="safe">—</span>
+        </div>
+      </div>
+
+      <div class="progress-wrap">
+        <div class="progress-track" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" id="progress-track">
+          <div class="progress-fill" id="progress-fill" data-level="safe"></div>
+          <div class="progress-topup-marker" id="progress-topup-marker" hidden></div>
+        </div>
+      </div>
+
+      <div class="kpi-strip">
+        <div class="kpi-item">
+          <span class="kpi-label">Đã dùng</span>
+          <div class="kpi-right-mobile">
+            <span class="kpi-value tabular" id="kpi-used">—</span>
+            <span class="kpi-sub tabular" id="kpi-used-pct">—</span>
+          </div>
+        </div>
+        <div class="kpi-item">
+          <span class="kpi-label">Reset chu kỳ</span>
+          <div class="kpi-right-mobile">
+            <span class="kpi-value tabular" id="kpi-reset-date">—</span>
+            <span class="kpi-sub tabular" id="kpi-days-left">—</span>
+          </div>
+        </div>
+        <div class="kpi-item">
+          <span class="kpi-label">Nhịp dùng</span>
+          <div class="kpi-right-mobile">
+            <span class="kpi-value tabular" id="kpi-burn-rate">—</span>
+            <span class="kpi-sub" id="kpi-forecast" data-tone="safe">—</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="hero-note" id="priority-note-wrap">
+        <span class="hero-note-dot" aria-hidden="true"></span>
+        <span id="priority-note">Ưu tiên Z12 · Hết mới request mua gói bổ sung</span>
+      </div>
+    </section>
+
+    <!-- 2. Projects Usage Section -->
+    <section class="section" aria-label="Credit theo dự án">
+      <div class="section-header">
+        <div class="section-title-group">
+          <h2 class="section-title">Đang dùng cho các dự án</h2>
+          <span class="section-count tabular" id="projects-count">0</span>
+        </div>
+        <span class="section-meta tabular" id="projects-total-meta"></span>
+      </div>
+
+      <div class="list-card" id="projects-list">
+        <div class="empty-state">Đang tải danh sách dự án...</div>
+      </div>
+    </section>
+
+    <!-- 3. Compact Recent Updates -->
+    <section class="section" aria-label="Lịch sử cập nhật gần nhất">
+      <div class="section-header">
+        <div class="section-title-group">
+          <h2 class="section-title">Cập nhật gần nhất</h2>
+          <span class="section-count tabular" id="logs-count">0</span>
+        </div>
+        <button type="button" class="text-btn" id="toggle-logs-btn" hidden>Thu gọn</button>
+      </div>
+
+      <div class="list-card" id="logs-list">
+        <div class="empty-state">Chưa có cập nhật nào.</div>
+      </div>
+    </section>
+  </main>
+
+  <footer class="footer">
+    <span>GOSU Media · Theo dõi thời gian thực</span>
+    <div class="footer-right">
+      <span id="footer-api-mode">Local PC</span>
+    </div>
+  </footer>
+
+  <!-- Quick Update Sheet / Modal -->
+  <div class="modal-backdrop" id="update-modal" data-open="false" role="dialog" aria-modal="true" aria-labelledby="modal-title" hidden>
+    <div class="modal-sheet">
+      <div class="modal-header">
+        <div class="modal-title-wrap">
+          <h2 class="modal-title" id="modal-title">Cập nhật</h2>
+        </div>
+        <div class="modal-header-right">
+          <button type="button" class="text-btn" id="lock-pin-btn" hidden title="Khóa chỉnh sửa trên thiết bị này">Khóa</button>
+          <button type="button" class="icon-btn" id="close-modal-btn" aria-label="Đóng">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+              <path d="M18 6L6 18M6 6l12 12"/>
+            </svg>
+          </button>
+        </div>
+      </div>
+
+      <div class="modal-body">
+        <!-- Inline PIN Verification Gate -->
+        <form class="pin-gate" id="pin-gate-form" hidden>
+          <div class="pin-heading">
+            <h3>Nhập mã nhóm để cập nhật</h3>
+            <p>Mọi thành viên đều có thể xem trực tiếp. Nhập mã nhóm một lần để lưu trên thiết bị này.</p>
+          </div>
+          <div class="pin-input-row">
+            <input
+              type="password"
+              class="input"
+              id="pin-input"
+              placeholder="Nhập mã nhóm..."
+              autocomplete="current-password"
+              required
+            />
+            <button type="submit" class="primary-btn btn-lg" id="pin-submit-btn">Mở khóa</button>
+          </div>
+          <div class="form-error" id="pin-error" hidden></div>
+        </form>
+
+        <!-- Unlocked Editor Workspace (Strictly 3 Tabs) -->
+        <div id="editor-workspace" hidden>
+          <div class="segmented" role="tablist" aria-label="Mục cập nhật">
+            <button type="button" class="seg-btn" role="tab" data-tab="balance" aria-selected="true">Số dư &amp; Dùng</button>
+            <button type="button" class="seg-btn" role="tab" data-tab="projects" aria-selected="false">Dự án</button>
+            <button type="button" class="seg-btn" role="tab" data-tab="cycle" aria-selected="false">Chu kỳ &amp; Gói</button>
+          </div>
+
+          <div class="form-error" id="editor-error" hidden style="margin-top: 14px;"></div>
+
+          <!-- TAB 1: Balance & Project Usage -->
+          <div id="tab-balance" style="margin-top: 16px;">
+            <div class="segmented two-col" role="tablist" aria-label="Chế độ ghi nhận" style="margin-bottom: 16px;">
+              <button type="button" class="seg-btn" data-submode="balance" aria-selected="true">Nhập số dư Dreamina</button>
+              <button type="button" class="seg-btn" data-submode="usage" aria-selected="false">Ghi nhận dùng dự án</button>
+            </div>
+
+            <!-- Submode A: Set remaining balance -->
+            <form class="form-stack" id="form-balance">
+              <div class="field">
+                <label class="field-label" for="bal-remaining">Số dư hiện tại trên Dreamina</label>
+                <input type="number" class="input input-hero tabular" id="bal-remaining" min="0" step="1" placeholder="10400" required />
+                <span class="field-hint tabular" id="bal-diff-preview">Nhập đúng con số đang hiển thị trên Dreamina.</span>
+              </div>
+
+              <div class="field">
+                <label class="field-label" for="bal-project">Gán phần chênh lệch cho dự án (tùy chọn)</label>
+                <select class="select" id="bal-project"></select>
+              </div>
+
+              <div class="form-grid-2">
+                <div class="field">
+                  <label class="field-label" for="bal-actor">Người cập nhật</label>
+                  <input type="text" class="input" id="bal-actor" placeholder="VD: Mon, Phước, Tân..." maxlength="40" />
+                </div>
+                <div class="field">
+                  <label class="field-label" for="bal-note">Ghi chú ngắn</label>
+                  <input type="text" class="input" id="bal-note" placeholder="VD: Render Z12 scene 3" maxlength="120" />
+                </div>
+              </div>
+
+              <div class="form-actions end">
+                <button type="submit" class="primary-btn btn-lg" id="btn-submit-balance">Lưu số dư mới</button>
+              </div>
+            </form>
+
+            <!-- Submode B: Log project usage -->
+            <form class="form-stack" id="form-usage" hidden>
+              <div class="field">
+                <label class="field-label" for="usage-project">Dự án</label>
+                <select class="select" id="usage-project"></select>
+              </div>
+
+              <div class="field" id="usage-new-project-wrap" hidden>
+                <label class="field-label" for="usage-new-project-name">Tên dự án mới</label>
+                <input type="text" class="input" id="usage-new-project-name" placeholder="VD: Z12 Teaser 2" maxlength="80" />
+              </div>
+
+              <div class="field">
+                <label class="field-label" for="usage-amount">Số credit đã dùng</label>
+                <input type="number" class="input input-hero tabular" id="usage-amount" min="1" step="1" placeholder="450" required />
+              </div>
+
+              <label class="checkbox-row">
+                <input type="checkbox" id="usage-auto-deduct" checked />
+                <span>Tự động trừ vào số dư còn lại</span>
+              </label>
+
+              <div class="form-grid-2">
+                <div class="field">
+                  <label class="field-label" for="usage-actor">Người ghi nhận</label>
+                  <input type="text" class="input" id="usage-actor" placeholder="VD: Mon, Gồ, Thương..." maxlength="40" />
+                </div>
+                <div class="field">
+                  <label class="field-label" for="usage-note">Ghi chú ngắn</label>
+                  <input type="text" class="input" id="usage-note" placeholder="VD: Xuất 4 clip giới thiệu" maxlength="120" />
+                </div>
+              </div>
+
+              <div class="form-actions end">
+                <button type="submit" class="primary-btn btn-lg" id="btn-submit-usage">Ghi nhận sử dụng</button>
+              </div>
+            </form>
+          </div>
+
+          <!-- TAB 2: Projects CRUD -->
+          <div id="tab-projects" hidden style="margin-top: 16px;">
+            <div class="form-stack">
+              <div class="field">
+                <span class="field-label">Chọn dự án để sửa hoặc thêm mới</span>
+                <div class="project-picker" id="project-picker"></div>
+              </div>
+
+              <form class="form-stack" id="form-project">
+                <input type="hidden" id="proj-id" />
+
+                <div class="field">
+                  <label class="field-label" for="proj-name">Tên dự án</label>
+                  <input type="text" class="input" id="proj-name" placeholder="VD: Z12 TVC" maxlength="80" required />
+                </div>
+
+                <div class="form-grid-2">
+                  <div class="field">
+                    <label class="field-label" for="proj-credits">Credit đã dùng</label>
+                    <input type="number" class="input tabular" id="proj-credits" min="0" step="1" value="0" required />
+                  </div>
+                  <div class="field">
+                    <label class="field-label" for="proj-status">Trạng thái</label>
+                    <select class="select" id="proj-status">
+                      <option value="active">Đang chạy</option>
+                      <option value="paused">Tạm dừng</option>
+                      <option value="done">Hoàn thành</option>
+                    </select>
+                  </div>
+                </div>
+
+                <div class="form-grid-2">
+                  <div class="field">
+                    <label class="field-label" for="proj-owner">Phụ trách</label>
+                    <input type="text" class="input" id="proj-owner" placeholder="Team Media" maxlength="50" />
+                  </div>
+                  <div class="field">
+                    <label class="field-label" for="proj-note">Ghi chú ngắn</label>
+                    <input type="text" class="input" id="proj-note" placeholder="Ưu tiên chính..." maxlength="120" />
+                  </div>
+                </div>
+
+                <label class="checkbox-row">
+                  <input type="checkbox" id="proj-priority" />
+                  <span>Đánh dấu là dự án Ưu tiên (ghim lên đầu)</span>
+                </label>
+
+                <div class="form-actions">
+                  <button type="button" class="danger-btn" id="btn-delete-project" hidden>Xóa dự án</button>
+                  <span id="proj-spacer"></span>
+                  <button type="submit" class="primary-btn btn-lg" id="btn-submit-project">Lưu dự án</button>
+                </div>
+              </form>
+            </div>
+          </div>
+
+          <!-- TAB 3: Cycle, Topup & Connection -->
+          <div id="tab-cycle" hidden style="margin-top: 16px;">
+            <div class="form-stack">
+              <p class="sub-block-title">Mua gói bổ sung</p>
+              <form class="form-stack" id="form-topup">
+                <div class="form-grid-2">
+                  <div class="field">
+                    <label class="field-label" for="topup-amount">Số credit bổ sung</label>
+                    <input type="number" class="input tabular" id="topup-amount" min="1" step="1" placeholder="2000" required />
+                  </div>
+                  <div class="field">
+                    <label class="field-label" for="topup-actor">Người ghi nhận</label>
+                    <input type="text" class="input" id="topup-actor" placeholder="VD: Mon, Thương..." maxlength="40" />
+                  </div>
+                </div>
+                <div class="field">
+                  <label class="field-label" for="topup-note">Ghi chú gói bổ sung</label>
+                  <input type="text" class="input" id="topup-note" placeholder="VD: Mua thêm gói nhỏ cho Z12" maxlength="120" />
+                </div>
+                <div class="form-actions end">
+                  <button type="submit" class="secondary-btn" id="btn-submit-topup">+ Cộng gói bổ sung</button>
+                </div>
+              </form>
+
+              <div class="divider"></div>
+              <p class="sub-block-title">Cấu hình chu kỳ &amp; tài khoản</p>
+
+              <form class="form-stack" id="form-config">
+                <div class="form-grid-2">
+                  <div class="field">
+                    <label class="field-label" for="cfg-quota">Hạn mức tháng (credit)</label>
+                    <input type="number" class="input tabular" id="cfg-quota" min="1" step="1" required />
+                  </div>
+                  <div class="field">
+                    <label class="field-label" for="cfg-reset-day">Ngày reset hàng tháng</label>
+                    <input type="number" class="input tabular" id="cfg-reset-day" min="1" max="31" step="1" required />
+                  </div>
+                </div>
+
+                <div class="form-grid-2">
+                  <div class="field">
+                    <label class="field-label" for="cfg-account">Tên tài khoản</label>
+                    <input type="text" class="input" id="cfg-account" maxlength="60" required />
+                  </div>
+                  <div class="field">
+                    <label class="field-label" for="cfg-plan">Tên gói</label>
+                    <input type="text" class="input" id="cfg-plan" maxlength="40" required />
+                  </div>
+                </div>
+
+                <div class="field">
+                  <label class="field-label" for="cfg-note">Ghi chú ưu tiên (hiển thị dưới số dư)</label>
+                  <input type="text" class="input" id="cfg-note" maxlength="160" />
+                </div>
+
+                <div class="form-actions">
+                  <button type="button" class="danger-btn" id="btn-reset-cycle">Reset chu kỳ mới</button>
+                  <button type="submit" class="primary-btn btn-lg" id="btn-submit-config">Lưu cấu hình</button>
+                </div>
+              </form>
+
+              <div class="divider"></div>
+
+              <!-- Collapsible Auto-Sync & Backend API Config -->
+              <details class="sync-details">
+                <summary>Kết nối Dreamina Auto-Sync &amp; Máy chủ API</summary>
+                <div class="sync-details-body">
+                  <div>
+                    <strong>Máy chủ đang kết nối:</strong> <span id="sync-api-mode-label"></span>
+                  </div>
+                  <div class="code-line" id="sync-api-url-display"></div>
+                  <div class="field">
+                    <label class="field-label" for="custom-api-input">Đổi địa chỉ Backend API (để trống = mặc định tự động)</label>
+                    <div class="pin-input-row">
+                      <input type="url" class="input" id="custom-api-input" placeholder="https://47-130-105-240.sslip.io/credit-api" />
+                      <button type="button" class="secondary-btn" id="btn-save-api">Áp dụng</button>
+                    </div>
+                  </div>
+                  <div>
+                    Extension <strong>GOSU Credit Auto-Sync</strong> trên Cốc Cốc / Chrome tự động gửi số dư Dreamina về endpoint:
+                  </div>
+                  <div class="code-line" id="sync-endpoint-display"></div>
+                </div>
+              </details>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Quiet Toast -->
+  <div class="toast" id="toast" data-visible="false" role="status" aria-live="polite"></div>
+
+  <script src="./config.js"></script>
+  <script src="./app.js"></script>
+</body>
+</html>
