@@ -398,6 +398,8 @@
       logo_url: isSafeImageUrl(p.logo_url) ? String(p.logo_url).trim() : '',
       status: p.status === 'done' || p.status === 'paused' ? p.status : 'active',
       credits_used: Number(p.credits_used != null ? p.credits_used : 0),
+      audit_credits: Math.max(0, Math.round(Number(p.audit_credits || 0))),
+      audit_items_count: Math.max(0, Math.round(Number(p.audit_items_count || 0))),
       owner: p.owner || '',
       note: p.note || ''
     };
@@ -642,6 +644,7 @@
       var sharePct = totalPinnedCredits > 0 ? (p.credits_used / totalPinnedCredits) * 100 : 0;
       var barPct = Math.max(p.credits_used > 0 ? 3 : 0, Math.min(100, (p.credits_used / denominator) * 100));
       var metaParts = [];
+      if (p.audit_items_count > 0) metaParts.push(fmtNum(p.audit_items_count) + ' lượt tạo');
       if (p.owner) metaParts.push(p.owner);
       if (p.note) metaParts.push(p.note);
       var metaStr = metaParts.join(' · ') || 'Nhấn để ghi nhận credit';
@@ -670,7 +673,7 @@
                   '<span>' + escapeHtml(statusLabel(p.status)) + '</span>' +
                 '</span>' +
               '</div>' +
-              '<div class="project-meta">' + escapeHtml(metaStr) + '</div>' +
+              '<div class="project-meta tabular">' + escapeHtml(metaStr) + '</div>' +
             '</div>' +
           '</div>' +
           '<div class="project-metrics">' +
