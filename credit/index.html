@@ -6,7 +6,7 @@
   <meta name="theme-color" content="#09090b" id="meta-theme-color" />
   <meta name="description" content="GOSU Credit Manager — Theo dõi credit Dreamina AI theo thời gian thực cho Team Media GOSU." />
   <title>GOSU Credit · Dreamina AI</title>
-  <link rel="icon" type="image/svg+xml" href="./favicon.svg" />
+  <link rel="icon" type="image/png" href="./favicon.png" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
@@ -31,15 +31,9 @@
   <header class="topbar">
     <div class="topbar-inner">
       <div class="brand">
-        <div class="brand-mark" aria-hidden="true">
-          <svg width="28" height="28" viewBox="0 0 64 64" fill="none">
-            <rect x="2" y="2" width="60" height="60" rx="16" fill="#18181D" stroke="currentColor" stroke-opacity="0.16" stroke-width="2"/>
-            <path d="M44.5 23.2A14.5 14.5 0 1 0 46.5 34.5H33.5" stroke="#F5F5F7" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/>
-            <circle cx="44" cy="22" r="4.5" fill="#30D158"/>
-          </svg>
-        </div>
+        <img class="brand-logo" src="./assets/gosu-logo.png" alt="GOSU" width="89" height="22" />
         <div class="brand-text">
-          <h1 class="brand-title">GOSU Credit</h1>
+          <h1 class="brand-title">Credit</h1>
           <span class="brand-sub" id="brand-platform">Dreamina AI</span>
         </div>
       </div>
@@ -103,6 +97,9 @@
         </div>
       </div>
 
+      <!-- Quiet inline wallet breakdown (Subscription / Purchased / Daily Free) -->
+      <div class="wallet-breakdown tabular" id="wallet-breakdown" hidden></div>
+
       <div class="progress-wrap">
         <div class="progress-track" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" id="progress-track">
           <div class="progress-fill" id="progress-fill" data-level="safe"></div>
@@ -110,6 +107,7 @@
         </div>
       </div>
 
+      <!-- Clean 2-Column KPI Strip -->
       <div class="kpi-strip">
         <div class="kpi-item">
           <span class="kpi-label">Đã dùng</span>
@@ -125,13 +123,6 @@
             <span class="kpi-sub tabular" id="kpi-days-left">—</span>
           </div>
         </div>
-        <div class="kpi-item">
-          <span class="kpi-label">Nhịp dùng</span>
-          <div class="kpi-right-mobile">
-            <span class="kpi-value tabular" id="kpi-burn-rate">—</span>
-            <span class="kpi-sub" id="kpi-forecast" data-tone="safe">—</span>
-          </div>
-        </div>
       </div>
 
       <div class="hero-note" id="priority-note-wrap">
@@ -140,8 +131,8 @@
       </div>
     </section>
 
-    <!-- 2. Projects Usage Section -->
-    <section class="section" aria-label="Credit theo dự án">
+    <!-- 2. Pinned Projects Usage Section -->
+    <section class="section" aria-label="Credit theo dự án đang ghim">
       <div class="section-header">
         <div class="section-title-group">
           <h2 class="section-title">Đang dùng cho các dự án</h2>
@@ -216,11 +207,12 @@
           <div class="form-error" id="pin-error" hidden></div>
         </form>
 
-        <!-- Unlocked Editor Workspace (Strictly 3 Tabs) -->
+        <!-- Unlocked Editor Workspace (4 Minimalist Tabs) -->
         <div id="editor-workspace" hidden>
-          <div class="segmented" role="tablist" aria-label="Mục cập nhật">
+          <div class="segmented four-col" role="tablist" aria-label="Mục cập nhật">
             <button type="button" class="seg-btn" role="tab" data-tab="balance" aria-selected="true">Số dư &amp; Dùng</button>
             <button type="button" class="seg-btn" role="tab" data-tab="projects" aria-selected="false">Dự án</button>
+            <button type="button" class="seg-btn" role="tab" data-tab="audit" aria-selected="false">Rà soát ví</button>
             <button type="button" class="seg-btn" role="tab" data-tab="cycle" aria-selected="false">Chu kỳ &amp; Gói</button>
           </div>
 
@@ -237,7 +229,7 @@
             <form class="form-stack" id="form-balance">
               <div class="field">
                 <label class="field-label" for="bal-remaining">Số dư hiện tại trên Dreamina</label>
-                <input type="number" class="input input-hero tabular" id="bal-remaining" min="0" step="1" placeholder="10400" required />
+                <input type="number" class="input input-hero tabular" id="bal-remaining" min="0" step="1" placeholder="10379" required />
                 <span class="field-hint tabular" id="bal-diff-preview">Nhập đúng con số đang hiển thị trên Dreamina.</span>
               </div>
 
@@ -276,7 +268,7 @@
 
               <div class="field">
                 <label class="field-label" for="usage-amount">Số credit đã dùng</label>
-                <input type="number" class="input input-hero tabular" id="usage-amount" min="1" step="1" placeholder="450" required />
+                <input type="number" class="input input-hero tabular" id="usage-amount" min="1" step="1" placeholder="270" required />
               </div>
 
               <label class="checkbox-row">
@@ -301,16 +293,42 @@
             </form>
           </div>
 
-          <!-- TAB 2: Projects CRUD -->
+          <!-- TAB 2: Projects CRUD (All Projects + Pin Toggle + Logo Upload/URL) -->
           <div id="tab-projects" hidden style="margin-top: 16px;">
             <div class="form-stack">
               <div class="field">
-                <span class="field-label">Chọn dự án để sửa hoặc thêm mới</span>
+                <div class="field-label-row">
+                  <span class="field-label">Tất cả dự án (chọn để sửa hoặc thêm mới)</span>
+                  <span class="pin-status-badge" id="proj-pin-status-badge" data-pinned="true">Đang ghim</span>
+                </div>
                 <div class="project-picker" id="project-picker"></div>
               </div>
 
               <form class="form-stack" id="form-project">
                 <input type="hidden" id="proj-id" />
+
+                <!-- Project Logo Upload + URL + Preview -->
+                <div class="field">
+                  <span class="field-label">Logo dự án (hiển thị 36×36 trên báo cáo)</span>
+                  <div class="logo-control">
+                    <div class="logo-preview" id="proj-logo-preview" aria-label="Xem trước logo dự án"></div>
+                    <div class="logo-control-fields">
+                      <div class="logo-btn-row">
+                        <input type="file" id="proj-logo-file" accept="image/*" hidden />
+                        <button type="button" class="secondary-btn btn-sm" id="btn-upload-logo">Chọn ảnh...</button>
+                        <button type="button" class="text-btn" id="btn-clear-logo" hidden>Xóa logo</button>
+                      </div>
+                      <input
+                        type="url"
+                        class="input input-sm"
+                        id="proj-logo-url"
+                        placeholder="Hoặc dán URL ảnh https://..."
+                        autocomplete="off"
+                      />
+                      <span class="field-hint" id="proj-logo-hint">Ảnh tải lên tự động cắt vuông 128×128 gọn nhẹ.</span>
+                    </div>
+                  </div>
+                </div>
 
                 <div class="field">
                   <label class="field-label" for="proj-name">Tên dự án</label>
@@ -343,10 +361,16 @@
                   </div>
                 </div>
 
-                <label class="checkbox-row">
-                  <input type="checkbox" id="proj-priority" />
-                  <span>Đánh dấu là dự án Ưu tiên (ghim lên đầu)</span>
-                </label>
+                <div class="toggle-stack">
+                  <label class="checkbox-row">
+                    <input type="checkbox" id="proj-pinned" checked />
+                    <span>Ghim lên báo cáo Web (Pin) — chỉ dự án ghim mới tính vào báo cáo chính</span>
+                  </label>
+                  <label class="checkbox-row">
+                    <input type="checkbox" id="proj-priority" />
+                    <span>Đánh dấu là dự án Ưu tiên (ghim lên đầu)</span>
+                  </label>
+                </div>
 
                 <div class="form-actions">
                   <button type="button" class="danger-btn" id="btn-delete-project" hidden>Xóa dự án</button>
@@ -357,7 +381,89 @@
             </div>
           </div>
 
-          <!-- TAB 3: Cycle, Topup & Connection -->
+          <!-- TAB 3: Wallet & Session Reconciliation Audit -->
+          <div id="tab-audit" hidden style="margin-top: 16px;">
+            <div class="form-stack">
+              <!-- Summary Cards -->
+              <div class="audit-kpi-grid">
+                <div class="audit-kpi-card">
+                  <span class="audit-kpi-label">Chi lịch sử ví</span>
+                  <span class="audit-kpi-value tabular" id="audit-ledger-spend">—</span>
+                </div>
+                <div class="audit-kpi-card">
+                  <span class="audit-kpi-label">Chi phiên ghim</span>
+                  <span class="audit-kpi-value tabular" id="audit-pinned-spend">—</span>
+                </div>
+                <div class="audit-kpi-card">
+                  <span class="audit-kpi-label">Chênh lệch / Chưa ghim</span>
+                  <span class="audit-kpi-value tabular" id="audit-diff-spend">—</span>
+                </div>
+              </div>
+
+              <!-- Wallet Breakdown & Last Audit Meta -->
+              <div class="audit-wallet-strip">
+                <div class="audit-wallet-line tabular" id="audit-wallet-line">Đăng ký — · Đã mua — · Tặng ngày —</div>
+                <div class="audit-meta-row">
+                  <span class="field-hint" id="audit-last-time">Chưa rà soát trong chu kỳ này</span>
+                  <button type="button" class="text-btn" id="btn-refresh-audit">Làm mới</button>
+                </div>
+              </div>
+
+              <div class="divider"></div>
+
+              <!-- Quick Paste Audit Form -->
+              <p class="sub-block-title">Rà soát nhanh (Dán từ Dreamina)</p>
+
+              <div class="segmented two-col" role="tablist" aria-label="Nguồn dữ liệu rà soát">
+                <button type="button" class="seg-btn" data-audit-mode="wallet" aria-selected="true">Lịch sử ví Dreamina</button>
+                <button type="button" class="seg-btn" data-audit-mode="session" aria-selected="false">Chi tiết phiên tạo</button>
+              </div>
+
+              <form class="form-stack" id="form-audit-parse">
+                <div class="field" id="audit-project-wrap" hidden>
+                  <label class="field-label" for="audit-project">Gán chi tiết phiên cho dự án đang ghim</label>
+                  <select class="select" id="audit-project"></select>
+                </div>
+
+                <div class="field">
+                  <label class="field-label" for="audit-raw-text" id="audit-text-label">Nội dung sao chép từ “Mức sử dụng điểm tín dụng”</label>
+                  <textarea
+                    class="textarea tabular"
+                    id="audit-raw-text"
+                    rows="4"
+                    placeholder="Dán trực tiếp bảng lịch sử từ Dreamina (VD: Tạo  2026-11-20 14:22  -270)..."
+                    required
+                  ></textarea>
+                </div>
+
+                <label class="checkbox-row">
+                  <input type="checkbox" id="audit-apply" checked />
+                  <span>Cập nhật số dư &amp; chi phí dự án ghim sau khi đối chiếu</span>
+                </label>
+
+                <div class="form-actions end">
+                  <button type="submit" class="primary-btn btn-lg" id="btn-submit-audit">Rà soát &amp; đối chiếu</button>
+                </div>
+
+                <p class="audit-ext-hint">
+                  Mẹo: Extension Dreamina (<code>C:\MONAI-Extensions\gosu-credit-sync</code>) hỗ trợ quét &amp; đối chiếu tự động chỉ với 1 nhấn.
+                </p>
+              </form>
+
+              <div class="divider"></div>
+
+              <!-- Compact Recent Audited Entries -->
+              <div class="field-label-row">
+                <p class="sub-block-title">Mục rà soát gần nhất</p>
+                <span class="field-hint tabular" id="audit-entries-count">0 mục</span>
+              </div>
+              <div class="audit-entries-list" id="audit-entries-list">
+                <div class="empty-state compact">Chưa có bản ghi rà soát ví nào.</div>
+              </div>
+            </div>
+          </div>
+
+          <!-- TAB 4: Cycle, Topup & Connection -->
           <div id="tab-cycle" hidden style="margin-top: 16px;">
             <div class="form-stack">
               <p class="sub-block-title">Mua gói bổ sung</p>

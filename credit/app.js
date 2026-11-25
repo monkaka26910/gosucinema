@@ -1,6 +1,6 @@
 /**
- * GOSU Credit Manager — Minimalist Realtime Frontend
- * Zero dependencies · Pure Vanilla JS · SSE Realtime + Exponential Backoff
+ * GOSU Credit Manager — Minimalist Realtime Frontend (v1.1)
+ * Zero dependencies · Pure Vanilla JS · SSE Realtime + Pinned-Only Report + Project Logos + Wallet Audit
  */
 (function () {
   'use strict';
@@ -8,15 +8,19 @@
   var CFG = window.GOSU_CONFIG;
   var NEW_PROJECT_SENTINEL = '__NEW__';
   var DEFAULT_LOG_LIMIT = 8;
+  var MAX_LOGO_DATA_URL_BYTES = 195 * 1024;
 
   var state = {
     snapshot: null,
+    auditData: null,
     editPin: '',
     pinVerified: false,
     modalOpen: false,
     activeTab: 'balance',
     balanceSubmode: 'balance',
+    auditMode: 'wallet',
     selectedProjectId: '',
+    projectLogoUrl: '',
     logsExpanded: false,
     sse: null,
     sseRetryDelay: 1200,
@@ -27,7 +31,6 @@
     toastTimer: null
   };
 
-  // DOM Cache
   var el = {};
 
   function $(id) {
@@ -56,6 +59,7 @@
       totalCredits: $('total-credits'),
       topupBadge: $('topup-badge'),
       remainingPctBadge: $('remaining-pct-badge'),
+      walletBreakdown: $('wallet-breakdown'),
       progressTrack: $('progress-track'),
       progressFill: $('progress-fill'),
       progressTopupMarker: $('progress-topup-marker'),
@@ -63,8 +67,6 @@
       kpiUsedPct: $('kpi-used-pct'),
       kpiResetDate: $('kpi-reset-date'),
       kpiDaysLeft: $('kpi-days-left'),
-      kpiBurnRate: $('kpi-burn-rate'),
-      kpiForecast: $('kpi-forecast'),
       priorityNoteWrap: $('priority-note-wrap'),
       priorityNote: $('priority-note'),
 
@@ -89,6 +91,7 @@
 
       tabBalance: $('tab-balance'),
       tabProjects: $('tab-projects'),
+      tabAudit: $('tab-audit'),
       tabCycle: $('tab-cycle'),
 
       formBalance: $('form-balance'),
@@ -110,16 +113,40 @@
       btnSubmitUsage: $('btn-submit-usage'),
 
       projectPicker: $('project-picker'),
+      projPinStatusBadge: $('proj-pin-status-badge'),
       formProject: $('form-project'),
       projId: $('proj-id'),
+      projLogoPreview: $('proj-logo-preview'),
+      projLogoFile: $('proj-logo-file'),
+      btnUploadLogo: $('btn-upload-logo'),
+      btnClearLogo: $('btn-clear-logo'),
+      projLogoUrl: $('proj-logo-url'),
+      projLogoHint: $('proj-logo-hint'),
       projName: $('proj-name'),
       projCredits: $('proj-credits'),
       projStatus: $('proj-status'),
       projOwner: $('proj-owner'),
       projNote: $('proj-note'),
+      projPinned: $('proj-pinned'),
       projPriority: $('proj-priority'),
       btnDeleteProject: $('btn-delete-project'),
       btnSubmitProject: $('btn-submit-project'),
+
+      auditLedgerSpend: $('audit-ledger-spend'),
+      auditPinnedSpend: $('audit-pinned-spend'),
+      auditDiffSpend: $('audit-diff-spend'),
+      auditWalletLine: $('audit-wallet-line'),
+      auditLastTime: $('audit-last-time'),
+      btnRefreshAudit: $('btn-refresh-audit'),
+      formAuditParse: $('form-audit-parse'),
+      auditProjectWrap: $('audit-project-wrap'),
+      auditProject: $('audit-project'),
+      auditTextLabel: $('audit-text-label'),
+      auditRawText: $('audit-raw-text'),
+      auditApply: $('audit-apply'),
+      btnSubmitAudit: $('btn-submit-audit'),
+      auditEntriesCount: $('audit-entries-count'),
+      auditEntriesList: $('audit-entries-list'),
 
       formTopup: $('form-topup'),
       topupAmount: $('topup-amount'),
@@ -173,14 +200,38 @@
       .replace(/'/g, '&#39;');
   }
 
+  function isSafeImageUrl(url) {
+    var s = String(url || '').trim();
+    if (!s) return false;
+    if (/^data:image\/(png|jpeg|jpg|webp|gif|svg\+xml);base64,/i.test(s)) return true;
+    if (/^https?:\/\//i.test(s)) return true;
+    if (/^\.\//.test(s)) return true;
+    return false;
+  }
+
+  function getProjectInitials(name) {
+    var clean = String(name || '').trim();
+    if (!clean) return 'PJ';
+    var words = clean.split(/[\s/\-_]+/).filter(Boolean);
+    if (words.length >= 2) {
+      var a = Array.from(words[0])[0] || '';
+      var b = Array.from(words[1])[0] || '';
+      return (a + b).toUpperCase();
+    }
+    var chars = Array.from(clean);
+    return chars.slice(0, 2).join('').toUpperCase();
+  }
+
   function parseDateSafe(iso) {
     if (!iso) return null;
     var s = String(iso).trim();
     if (!s) return null;
-    // Handle YYYY-MM-DD cleanly
     if (/^\d{4}-\d{2}-\d{2}$/.test(s)) {
       var parts = s.split('-');
       return new Date(Number(parts[0]), Number(parts[1]) - 1, Number(parts[2]));
+    }
+    if (/^\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}/.test(s)) {
+      s = s.replace(' ', 'T');
     }
     var d = new Date(s);
     if (isNaN(d.getTime())) return null;
@@ -193,9 +244,7 @@
     if (m) return m[3] + '/' + m[2];
     var d = parseDateSafe(dateStr);
     if (!d) return String(dateStr);
-    var dd = String(d.getDate()).padStart(2, '0');
-    var mm = String(d.getMonth() + 1).padStart(2, '0');
-    return dd + '/' + mm;
+    return String(d.getDate()).padStart(2, '0') + '/' + String(d.getMonth() + 1).padStart(2, '0');
   }
 
   function formatRelativeTime(iso) {
@@ -231,7 +280,7 @@
 
   function formatCompactLogTime(iso) {
     var d = parseDateSafe(iso);
-    if (!d) return '—';
+    if (!d) return String(iso || '—').slice(0, 16);
     var now = new Date();
     var sameDay = d.getFullYear() === now.getFullYear() &&
       d.getMonth() === now.getMonth() &&
@@ -242,15 +291,19 @@
     return String(d.getDate()).padStart(2, '0') + '/' + String(d.getMonth() + 1).padStart(2, '0');
   }
 
-  function getHealthLevel(remainingPct, forecastStatus) {
+  function formatAuditEntryTime(ts) {
+    var raw = String(ts || '').trim();
+    var m = raw.match(/^\d{4}-(\d{2})-(\d{2})[T\s](\d{2}:\d{2})/);
+    if (m) return m[2] + '/' + m[1] + ' ' + m[3];
+    return formatCompactLogTime(raw);
+  }
+
+  function getHealthLevel(remainingPct) {
     var p = Number(remainingPct);
     if (Number.isFinite(p)) {
       if (p < 15) return 'critical';
       if (p <= 35) return 'watch';
       return 'safe';
-    }
-    if (forecastStatus === 'critical' || forecastStatus === 'watch' || forecastStatus === 'safe') {
-      return forecastStatus;
     }
     return 'safe';
   }
@@ -259,6 +312,9 @@
     var s = String(source || '').toLowerCase();
     if (s.indexOf('dreamina') !== -1 || s.indexOf('ext') !== -1 || s.indexOf('auto') !== -1) {
       return 'Auto Sync';
+    }
+    if (s.indexOf('audit') !== -1) {
+      return 'Rà soát ví';
     }
     if (s.indexOf('seed') !== -1 || s.indexOf('init') !== -1) {
       return 'Khởi tạo';
@@ -306,7 +362,7 @@
   }
 
   /* ========================================================================
-     Theme Toggle
+     Theme Toggle (SVGElement-safe toggleAttribute + declarative CSS)
      ======================================================================== */
   function applyTheme(theme, persist) {
     var t = theme === 'light' ? 'light' : 'dark';
@@ -331,8 +387,34 @@
   }
 
   /* ========================================================================
-     Normalize Backend Snapshot (defensive against minor field variations)
+     Normalize Backend Snapshot (v1.1: wallet breakdown, pinned, logo_url, report)
      ======================================================================== */
+  function normalizeProject(p) {
+    return {
+      id: String(p.id != null ? p.id : p.name),
+      name: String(p.name || 'Chưa đặt tên'),
+      priority: Boolean(p.priority),
+      pinned: p.pinned === undefined ? true : Boolean(p.pinned),
+      logo_url: isSafeImageUrl(p.logo_url) ? String(p.logo_url).trim() : '',
+      status: p.status === 'done' || p.status === 'paused' ? p.status : 'active',
+      credits_used: Number(p.credits_used != null ? p.credits_used : 0),
+      owner: p.owner || '',
+      note: p.note || ''
+    };
+  }
+
+  function sortProjectsForReport(list) {
+    return list.slice().sort(function (a, b) {
+      if (a.priority !== b.priority) return a.priority ? -1 : 1;
+      var statusWeight = { active: 0, paused: 1, done: 2 };
+      var sa = statusWeight[a.status] != null ? statusWeight[a.status] : 0;
+      var sb = statusWeight[b.status] != null ? statusWeight[b.status] : 0;
+      if (sa !== sb) return sa - sb;
+      if (b.credits_used !== a.credits_used) return b.credits_used - a.credits_used;
+      return a.name.localeCompare(b.name, 'vi');
+    });
+  }
+
   function normalizeSnapshot(raw) {
     if (!raw || typeof raw !== 'object') return null;
     var acc = raw.account || raw.config || {};
@@ -348,6 +430,12 @@
       ? Number(acc.used_pct)
       : (totalAvailable > 0 ? (used / totalAvailable) * 100 : 0);
 
+    var hasWalletBreakdown = (
+      acc.subscription_credits != null ||
+      acc.purchased_credits != null ||
+      acc.daily_free_credits != null
+    );
+
     var account = {
       platform: acc.platform || 'Dreamina AI',
       account_name: acc.account_name || 'DES-MEDIA-GOSUHUI',
@@ -359,41 +447,31 @@
       used_credits: used,
       remaining_pct: remPct,
       used_pct: usedPct,
+      has_wallet_breakdown: hasWalletBreakdown,
+      subscription_credits: acc.subscription_credits != null ? Number(acc.subscription_credits) : null,
+      purchased_credits: acc.purchased_credits != null ? Number(acc.purchased_credits) : null,
+      daily_free_credits: acc.daily_free_credits != null ? Number(acc.daily_free_credits) : null,
       reset_day: Number(acc.reset_day != null ? acc.reset_day : 4),
       next_reset_date: acc.next_reset_date || '',
       days_until_reset: acc.days_until_reset != null ? Number(acc.days_until_reset) : null,
-      cycle_start_date: acc.cycle_start_date || '',
-      days_elapsed: acc.days_elapsed != null ? Number(acc.days_elapsed) : null,
-      avg_daily_burn: acc.avg_daily_burn != null ? Number(acc.avg_daily_burn) : null,
-      projected_days_left: acc.projected_days_left != null ? Number(acc.projected_days_left) : null,
-      forecast_status: acc.forecast_status || getHealthLevel(remPct),
       priority_note: acc.priority_note != null ? acc.priority_note : '',
-      last_updated_at: acc.last_synced_at || acc.updated_at || raw.sync_meta && raw.sync_meta.last_synced_at || raw.server_time || '',
+      last_audit_at: acc.last_audit_at || '',
+      last_updated_at: acc.last_synced_at || acc.updated_at || (raw.sync_meta && raw.sync_meta.last_synced_at) || raw.server_time || '',
       last_sync_source: acc.last_sync_source || acc.sync_source || (raw.sync_meta && raw.sync_meta.last_sync_source) || 'manual'
     };
 
-    var projectsRaw = Array.isArray(raw.projects) ? raw.projects : [];
-    var projects = projectsRaw.map(function (p) {
-      return {
-        id: String(p.id != null ? p.id : p.name),
-        name: String(p.name || 'Chưa đặt tên'),
-        priority: Boolean(p.priority),
-        status: p.status === 'done' || p.status === 'paused' ? p.status : 'active',
-        credits_used: Number(p.credits_used != null ? p.credits_used : 0),
-        owner: p.owner || '',
-        note: p.note || ''
-      };
-    });
-
-    projects.sort(function (a, b) {
+    var allProjectsRaw = Array.isArray(raw.projects) ? raw.projects : [];
+    var allProjects = allProjectsRaw.map(normalizeProject).sort(function (a, b) {
+      if (a.pinned !== b.pinned) return a.pinned ? -1 : 1;
       if (a.priority !== b.priority) return a.priority ? -1 : 1;
-      var statusWeight = { active: 0, paused: 1, done: 2 };
-      var sa = statusWeight[a.status] != null ? statusWeight[a.status] : 0;
-      var sb = statusWeight[b.status] != null ? statusWeight[b.status] : 0;
-      if (sa !== sb) return sa - sb;
       if (b.credits_used !== a.credits_used) return b.credits_used - a.credits_used;
       return a.name.localeCompare(b.name, 'vi');
     });
+
+    var pinnedRaw = Array.isArray(raw.pinned_projects)
+      ? raw.pinned_projects.map(normalizeProject).filter(function (p) { return p.pinned !== false; })
+      : allProjects.filter(function (p) { return p.pinned !== false; });
+    var pinnedProjects = sortProjectsForReport(pinnedRaw);
 
     var logsRaw = Array.isArray(raw.logs) ? raw.logs : [];
     var logs = logsRaw.map(function (l) {
@@ -413,14 +491,16 @@
 
     return {
       account: account,
-      projects: projects,
+      projects: allProjects,
+      pinned_projects: pinnedProjects,
+      report: raw.report || null,
       logs: logs,
       server_time: raw.server_time || ''
     };
   }
 
   /* ========================================================================
-     Render Dashboard
+     Render Dashboard (Observation-First, Pinned-Only Report, Zero Clutter)
      ======================================================================== */
   function renderSnapshot(nextRaw, isRealtimeUpdate) {
     var next = normalizeSnapshot(nextRaw);
@@ -430,7 +510,7 @@
     state.snapshot = next;
 
     var acc = next.account;
-    var level = getHealthLevel(acc.remaining_pct, acc.forecast_status);
+    var level = getHealthLevel(acc.remaining_pct);
 
     // Top bar & page title
     if (el.brandPlatform) el.brandPlatform.textContent = acc.platform || 'Dreamina AI';
@@ -461,6 +541,17 @@
     el.remainingPctBadge.setAttribute('data-level', level);
     el.remainingPctBadge.textContent = fmtPct(acc.remaining_pct) + ' còn lại';
 
+    // Quiet inline wallet breakdown
+    if (acc.has_wallet_breakdown) {
+      var subVal = acc.subscription_credits != null ? fmtNum(acc.subscription_credits) : '0';
+      var purVal = acc.purchased_credits != null ? fmtNum(acc.purchased_credits) : '0';
+      var dayVal = acc.daily_free_credits != null ? fmtNum(acc.daily_free_credits) : '0';
+      el.walletBreakdown.hidden = false;
+      el.walletBreakdown.textContent = 'Đăng ký ' + subVal + ' · Đã mua ' + purVal + ' · Tặng ngày ' + dayVal;
+    } else {
+      el.walletBreakdown.hidden = true;
+    }
+
     // Progress Bar
     var fillPct = Math.max(0, Math.min(100, acc.remaining_pct));
     el.progressFill.setAttribute('data-level', level);
@@ -476,7 +567,7 @@
       el.progressTopupMarker.hidden = true;
     }
 
-    // 3 Inline KPIs
+    // 2 Clean Inline KPIs (Đã dùng + Reset chu kỳ)
     el.kpiUsed.textContent = fmtNum(acc.used_credits);
     el.kpiUsedPct.textContent = fmtPct(acc.used_pct) + ' tổng gói';
 
@@ -491,30 +582,6 @@
       el.kpiDaysLeft.textContent = 'Reset ngày ' + acc.reset_day + ' hàng tháng';
     }
 
-    var burn = acc.avg_daily_burn;
-    if (burn != null && burn > 0) {
-      el.kpiBurnRate.textContent = '~' + fmtNum(burn) + ' / ngày';
-    } else {
-      el.kpiBurnRate.textContent = '0 / ngày';
-    }
-
-    var forecastTone = acc.forecast_status || level;
-    var forecastText = 'Đủ tới ngày reset';
-    if (acc.remaining_credits <= 0) {
-      forecastTone = 'critical';
-      forecastText = 'Đã hết · Cần mua gói bổ sung';
-    } else if (forecastTone === 'critical') {
-      forecastText = 'Cần mua gói bổ sung';
-    } else if (forecastTone === 'watch') {
-      if (acc.projected_days_left != null && acc.days_until_reset != null && acc.projected_days_left < acc.days_until_reset) {
-        forecastText = 'Dự kiến hết sau ~' + Math.max(1, Math.round(acc.projected_days_left)) + ' ngày';
-      } else {
-        forecastText = 'Cần tiết kiệm ưu tiên';
-      }
-    }
-    el.kpiForecast.setAttribute('data-tone', forecastTone);
-    el.kpiForecast.textContent = forecastText;
-
     // Priority Note
     if (acc.priority_note && acc.priority_note.trim()) {
       el.priorityNoteWrap.hidden = false;
@@ -523,15 +590,18 @@
       el.priorityNoteWrap.hidden = true;
     }
 
-    // Projects List
-    renderProjects(next.projects, prev ? prev.projects : null, isRealtimeUpdate, acc.used_credits);
+    // Pinned-Only Projects List
+    renderProjects(next.pinned_projects, prev ? prev.pinned_projects : null, isRealtimeUpdate);
 
     // Recent Updates Timeline
     renderLogs(next.logs);
 
-    // Keep modal dropdowns / fields fresh if open
+    // Refresh open modal selectors & live audit tab on SSE updates
     if (state.modalOpen && state.pinVerified) {
       refreshModalSelectorsOnly();
+      if (state.activeTab === 'audit' && isRealtimeUpdate) {
+        fetchAuditData(false);
+      }
     }
   }
 
@@ -545,51 +615,63 @@
     el.lastUpdated.title = acc.last_updated_at ? formatFullTime(acc.last_updated_at) : '';
   }
 
-  function renderProjects(projects, prevProjects, isRealtimeUpdate, accountUsed) {
-    el.projectsCount.textContent = String(projects.length);
+  function renderProjects(pinnedProjects, prevPinned, isRealtimeUpdate) {
+    el.projectsCount.textContent = String(pinnedProjects.length);
 
-    var totalProjectCredits = projects.reduce(function (sum, p) {
+    // Compute total strictly from pinned projects only
+    var totalPinnedCredits = pinnedProjects.reduce(function (sum, p) {
       return sum + Math.max(0, p.credits_used);
     }, 0);
 
-    var denominator = Math.max(totalProjectCredits, accountUsed || 0, 1);
-    el.projectsTotalMeta.textContent = totalProjectCredits > 0
-      ? ('Tổng phân bổ: ' + fmtNum(totalProjectCredits) + ' credit')
+    var denominator = Math.max(totalPinnedCredits, 1);
+    el.projectsTotalMeta.textContent = totalPinnedCredits > 0
+      ? ('Tổng phân bổ: ' + fmtNum(totalPinnedCredits) + ' credit')
       : '';
 
-    if (!projects.length) {
-      el.projectsList.innerHTML = '<div class="empty-state">Chưa có dự án nào. Nhấn “Cập nhật” để thêm dự án đầu tiên.</div>';
+    if (!pinnedProjects.length) {
+      el.projectsList.innerHTML = '<div class="empty-state">Chưa có dự án nào được ghim lên báo cáo. Mở “Cập nhật → Dự án” để ghim dự án.</div>';
       return;
     }
 
     var prevMap = {};
-    if (prevProjects) {
-      prevProjects.forEach(function (p) { prevMap[p.id] = p.credits_used; });
+    if (prevPinned) {
+      prevPinned.forEach(function (p) { prevMap[p.id] = p.credits_used; });
     }
 
-    var html = projects.map(function (p) {
-      var sharePct = totalProjectCredits > 0 ? (p.credits_used / totalProjectCredits) * 100 : 0;
+    var html = pinnedProjects.map(function (p) {
+      var sharePct = totalPinnedCredits > 0 ? (p.credits_used / totalPinnedCredits) * 100 : 0;
       var barPct = Math.max(p.credits_used > 0 ? 3 : 0, Math.min(100, (p.credits_used / denominator) * 100));
       var metaParts = [];
       if (p.owner) metaParts.push(p.owner);
       if (p.note) metaParts.push(p.note);
       var metaStr = metaParts.join(' · ') || 'Nhấn để ghi nhận credit';
       var changed = isRealtimeUpdate && prevMap[p.id] != null && prevMap[p.id] !== p.credits_used;
+      var initials = getProjectInitials(p.name);
+      var hasLogo = Boolean(p.logo_url);
+
+      var logoHtml = hasLogo
+        ? '<div class="project-logo" data-has-img="true" data-initials="' + escapeHtml(initials) + '">' +
+            '<img class="project-logo-img" src="' + escapeHtml(p.logo_url) + '" alt="" loading="lazy" />' +
+          '</div>'
+        : '<div class="project-logo" data-has-img="false">' + escapeHtml(initials) + '</div>';
 
       return (
         '<button type="button" class="project-row" data-project-id="' + escapeHtml(p.id) + '" ' +
         'data-priority="' + (p.priority ? 'true' : 'false') + '" data-status="' + escapeHtml(p.status) + '" ' +
         'title="Nhấn để ghi nhận nhanh credit cho ' + escapeHtml(p.name) + '">' +
-          '<div class="project-main">' +
-            '<div class="project-title-line">' +
-              '<span class="project-name">' + escapeHtml(p.name) + '</span>' +
-              (p.priority ? '<span class="priority-pill">Ưu tiên</span>' : '') +
-              '<span class="status-chip" data-status="' + escapeHtml(p.status) + '">' +
-                '<span class="status-dot" aria-hidden="true"></span>' +
-                '<span>' + escapeHtml(statusLabel(p.status)) + '</span>' +
-              '</span>' +
+          '<div class="project-identity">' +
+            logoHtml +
+            '<div class="project-main">' +
+              '<div class="project-title-line">' +
+                '<span class="project-name">' + escapeHtml(p.name) + '</span>' +
+                (p.priority ? '<span class="priority-pill">Ưu tiên</span>' : '') +
+                '<span class="status-chip" data-status="' + escapeHtml(p.status) + '">' +
+                  '<span class="status-dot" aria-hidden="true"></span>' +
+                  '<span>' + escapeHtml(statusLabel(p.status)) + '</span>' +
+                '</span>' +
+              '</div>' +
+              '<div class="project-meta">' + escapeHtml(metaStr) + '</div>' +
             '</div>' +
-            '<div class="project-meta">' + escapeHtml(metaStr) + '</div>' +
           '</div>' +
           '<div class="project-metrics">' +
             '<div class="project-numbers tabular">' +
@@ -605,6 +687,16 @@
     }).join('');
 
     el.projectsList.innerHTML = html;
+
+    // Graceful fallback if any remote logo image fails to load
+    el.projectsList.querySelectorAll('.project-logo-img').forEach(function (img) {
+      img.addEventListener('error', function () {
+        var box = img.parentElement;
+        if (!box) return;
+        box.setAttribute('data-has-img', 'false');
+        box.textContent = box.getAttribute('data-initials') || 'PJ';
+      }, { once: true });
+    });
   }
 
   function renderLogs(logs) {
@@ -638,6 +730,9 @@
       } else if (ev.indexOf('reset') !== -1) {
         kind = 'reset';
         badgeText = 'Reset';
+      } else if (ev.indexOf('audit') !== -1) {
+        kind = 'sync';
+        badgeText = d === 0 ? 'Rà soát' : (d > 0 ? '+' + fmtNum(d) : '-' + fmtNum(Math.abs(d)));
       } else if (ev.indexOf('sync') !== -1) {
         kind = d < 0 ? 'spend' : 'sync';
         badgeText = d === 0 ? 'Sync' : (d > 0 ? '+' + fmtNum(d) : '-' + fmtNum(Math.abs(d)));
@@ -669,6 +764,211 @@
         '</div>'
       );
     }).join('');
+  }
+
+  /* ========================================================================
+     Audit Tab (GET /api/audit & POST /api/audit/parse-text)
+     ======================================================================== */
+  async function fetchAuditData(showError) {
+    try {
+      var res = await fetch(CFG.apiUrl('/api/audit'), {
+        method: 'GET',
+        headers: { 'Accept': 'application/json' },
+        cache: 'no-store'
+      });
+      if (!res.ok) throw new Error('HTTP ' + res.status);
+      var data = await res.json();
+      state.auditData = data;
+      renderAuditPanel(data);
+      return data;
+    } catch (err) {
+      if (showError) {
+        showEditorError('Không thể tải dữ liệu rà soát ví (' + err.message + ').');
+      }
+      renderAuditPanel(state.auditData);
+      return null;
+    }
+  }
+
+  function renderAuditPanel(data) {
+    var summary = (data && data.summary) || {};
+    var wallet = (data && data.wallet) || (state.snapshot && state.snapshot.account) || {};
+    var entries = (data && (data.recent_entries || data.entries)) || [];
+
+    var ledgerSpend = summary.ledger_spend != null
+      ? Number(summary.ledger_spend)
+      : (summary.wallet_ledger_spend != null
+        ? Number(summary.wallet_ledger_spend)
+        : (summary.total_ledger_spend != null ? Number(summary.total_ledger_spend) : null));
+
+    var pinnedSpend = summary.pinned_spend != null
+      ? Number(summary.pinned_spend)
+      : (summary.pinned_sessions_spend != null
+        ? Number(summary.pinned_sessions_spend)
+        : (summary.reconciled_pinned_spend != null ? Number(summary.reconciled_pinned_spend) : null));
+
+    var diffSpend = summary.unpinned_or_unmatched_spend != null
+      ? Number(summary.unpinned_or_unmatched_spend)
+      : (summary.unmatched_spend != null
+        ? Number(summary.unmatched_spend)
+        : (summary.unpinned_spend != null
+          ? Number(summary.unpinned_spend)
+          : (ledgerSpend != null && pinnedSpend != null ? Math.max(0, ledgerSpend - pinnedSpend) : null)));
+
+    el.auditLedgerSpend.textContent = ledgerSpend != null ? fmtNum(ledgerSpend) : '—';
+    el.auditPinnedSpend.textContent = pinnedSpend != null ? fmtNum(pinnedSpend) : '—';
+    el.auditDiffSpend.textContent = diffSpend != null ? fmtNum(diffSpend) : '—';
+
+    if (diffSpend != null) {
+      el.auditDiffSpend.setAttribute('data-tone', diffSpend > 0 ? 'watch' : 'safe');
+    } else {
+      el.auditDiffSpend.removeAttribute('data-tone');
+    }
+
+    var subW = wallet.subscription_credits != null ? fmtNum(wallet.subscription_credits) : '—';
+    var purW = wallet.purchased_credits != null ? fmtNum(wallet.purchased_credits) : '—';
+    var dayW = wallet.daily_free_credits != null ? fmtNum(wallet.daily_free_credits) : '—';
+    el.auditWalletLine.textContent = 'Đăng ký ' + subW + ' · Đã mua ' + purW + ' · Tặng ngày ' + dayW;
+
+    var lastAt = summary.last_audit_at || wallet.last_audit_at || (state.snapshot && state.snapshot.account.last_audit_at) || '';
+    el.auditLastTime.textContent = lastAt
+      ? ('Rà soát gần nhất: ' + formatRelativeTime(lastAt) + ' (' + formatFullTime(lastAt) + ')')
+      : 'Chưa có lần rà soát nào trong chu kỳ này';
+
+    el.auditEntriesCount.textContent = entries.length + ' mục';
+
+    if (!entries.length) {
+      el.auditEntriesList.innerHTML = '<div class="empty-state compact">Chưa có bản ghi rà soát ví nào. Dán lịch sử Dreamina ở trên để đối chiếu ngay.</div>';
+      return;
+    }
+
+    el.auditEntriesList.innerHTML = entries.slice(0, 25).map(function (entry) {
+      var ts = entry.occurred_at || entry.created_at || '';
+      var delta = Number(entry.delta != null ? entry.delta : (entry.credits_used != null ? -Math.abs(Number(entry.credits_used)) : 0));
+      var signAttr = delta > 0 ? 'pos' : (delta < 0 ? 'neg' : 'zero');
+      var deltaStr = delta > 0 ? ('+' + fmtNum(delta)) : (delta < 0 ? ('-' + fmtNum(Math.abs(delta))) : '0');
+
+      var title = entry.project_name || entry.session_name || entry.label || 'Mục ví';
+      if (entry.project_name && entry.label && entry.label.toLowerCase().indexOf(entry.project_name.toLowerCase()) === -1) {
+        title = entry.project_name + ' · ' + entry.label;
+      }
+
+      var statusText = 'Chưa ghim';
+      var matchAttr = 'unmatched';
+      var ms = String(entry.match_status || '').toLowerCase();
+      var lblLower = String(entry.label || '').toLowerCase();
+      if (ms === 'daily_free' || lblLower.indexOf('miễn phí') !== -1 || lblLower.indexOf('daily') !== -1) {
+        statusText = 'Tặng ngày';
+        matchAttr = 'daily';
+      } else if (ms === 'matched' || entry.matched || entry.matched_entry_id) {
+        statusText = 'Đã khớp';
+        matchAttr = 'matched';
+      } else if (ms === 'session_only' || entry.project_id) {
+        statusText = 'Phiên ghim';
+        matchAttr = 'matched';
+      }
+
+      return (
+        '<div class="audit-entry-row" title="' + escapeHtml((ts ? ts + ' — ' : '') + title) + '">' +
+          '<span class="audit-entry-time tabular">' + escapeHtml(formatAuditEntryTime(ts)) + '</span>' +
+          '<span class="audit-entry-title">' + escapeHtml(title) + '</span>' +
+          '<span class="audit-entry-delta tabular" data-sign="' + signAttr + '">' + escapeHtml(deltaStr) + '</span>' +
+          '<span class="audit-match-pill" data-match="' + matchAttr + '">' + escapeHtml(statusText) + '</span>' +
+        '</div>'
+      );
+    }).join('');
+  }
+
+  function switchAuditMode(mode) {
+    state.auditMode = mode === 'session' ? 'session' : 'wallet';
+    el.tabAudit.querySelectorAll('[data-audit-mode]').forEach(function (btn) {
+      btn.setAttribute('aria-selected', btn.getAttribute('data-audit-mode') === state.auditMode ? 'true' : 'false');
+    });
+    var isSession = state.auditMode === 'session';
+    el.auditProjectWrap.hidden = !isSession;
+    el.auditProject.required = isSession;
+    el.auditTextLabel.textContent = isSession
+      ? 'Nội dung sao chép từ “Chi tiết (i)” trong phiên tạo Dreamina'
+      : 'Nội dung sao chép từ “Mức sử dụng điểm tín dụng” trên Dreamina';
+    el.auditRawText.placeholder = isSession
+      ? 'Dán văn bản chứa "Đã tạo lúc YYYY-MM-DD HH:MM" và "Số điểm tín dụng đã dùng 270"...'
+      : 'Dán toàn bộ bảng lịch sử từ modal "Mức sử dụng điểm tín dụng" trên Dreamina...';
+  }
+
+  /* ========================================================================
+     Client-Side Logo Image Resize (Center Square Crop -> 128x128 Data URL)
+     ======================================================================== */
+  function processLogoFile(file) {
+    return new Promise(function (resolve, reject) {
+      if (!file || !file.type || file.type.indexOf('image/') !== 0) {
+        reject(new Error('Vui lòng chọn tệp ảnh hợp lệ (PNG, JPG, WebP).'));
+        return;
+      }
+      var reader = new FileReader();
+      reader.onerror = function () { reject(new Error('Không đọc được tệp ảnh.')); };
+      reader.onload = function () {
+        var img = new Image();
+        img.onerror = function () { reject(new Error('Định dạng ảnh không được hỗ trợ.')); };
+        img.onload = function () {
+          try {
+            var size = 128;
+            var canvas = document.createElement('canvas');
+            canvas.width = size;
+            canvas.height = size;
+            var ctx = canvas.getContext('2d');
+            var side = Math.min(img.width, img.height);
+            var sx = Math.floor((img.width - side) / 2);
+            var sy = Math.floor((img.height - side) / 2);
+            ctx.clearRect(0, 0, size, size);
+            ctx.imageSmoothingEnabled = true;
+            ctx.imageSmoothingQuality = 'high';
+            ctx.drawImage(img, sx, sy, side, side, 0, 0, size, size);
+
+            var dataUrl = canvas.toDataURL('image/webp', 0.86);
+            if (!dataUrl || dataUrl.indexOf('data:image/webp') !== 0) {
+              dataUrl = canvas.toDataURL('image/png');
+            }
+            if (dataUrl.length > MAX_LOGO_DATA_URL_BYTES) {
+              dataUrl = canvas.toDataURL('image/jpeg', 0.82);
+            }
+            if (dataUrl.length > MAX_LOGO_DATA_URL_BYTES) {
+              reject(new Error('Ảnh sau nén vẫn quá lớn (>200KB), vui lòng chọn ảnh khác.'));
+              return;
+            }
+            resolve(dataUrl);
+          } catch (err) {
+            reject(err);
+          }
+        };
+        img.src = String(reader.result || '');
+      };
+      reader.readAsDataURL(file);
+    });
+  }
+
+  function renderProjectLogoPreview() {
+    var url = state.projectLogoUrl;
+    var initials = getProjectInitials(el.projName.value || 'PJ');
+
+    if (url && isSafeImageUrl(url)) {
+      el.projLogoPreview.innerHTML = '<img src="' + escapeHtml(url) + '" alt="Logo dự án" />';
+      var previewImg = el.projLogoPreview.querySelector('img');
+      if (previewImg) {
+        previewImg.addEventListener('error', function () {
+          el.projLogoPreview.textContent = initials;
+        }, { once: true });
+      }
+      el.btnClearLogo.hidden = false;
+      if (url.indexOf('data:image/') === 0) {
+        el.projLogoHint.textContent = 'Đã tải ảnh lên (128×128, ' + Math.max(1, Math.round(url.length / 1024)) + ' KB).';
+      } else {
+        el.projLogoHint.textContent = 'Đang dùng ảnh từ URL.';
+      }
+    } else {
+      el.projLogoPreview.textContent = initials;
+      el.btnClearLogo.hidden = true;
+      el.projLogoHint.textContent = 'Ảnh tải lên tự động cắt vuông 128×128 gọn nhẹ.';
+    }
   }
 
   /* ========================================================================
@@ -747,7 +1047,6 @@
     closeSSE();
 
     if (typeof window.EventSource !== 'function') {
-      // Ultra-rare fallback: polite 10s polling
       setLiveState('live', 'Tự động làm mới');
       if (!state.pollFallbackTimer) {
         state.pollFallbackTimer = setInterval(function () { fetchState(false); }, 10000);
@@ -781,9 +1080,7 @@
         if (prevRemaining !== null && state.snapshot && state.snapshot.account.remaining_credits !== prevRemaining && !state.modalOpen) {
           showToast('Cập nhật mới: còn ' + fmtNum(state.snapshot.account.remaining_credits) + ' credit');
         }
-      } catch (_) {
-        // ignore keepalive or malformed frame
-      }
+      } catch (_) {}
     }
 
     es.addEventListener('state', handleStateMessage);
@@ -835,7 +1132,6 @@
       var errMsg = (data && (data.error || data.detail || data.message)) || ('Lỗi máy chủ (' + res.status + ')');
       throw new Error(errMsg);
     }
-    // If server returns updated snapshot directly, render immediately before SSE even arrives
     if (data && data.account && data.projects) {
       renderSnapshot(data, true);
     } else if (data && data.state && data.state.account) {
@@ -899,7 +1195,6 @@
         clearSavedPin();
       }
     } catch (_) {
-      // Server might be temporarily offline; keep saved PIN for retry when user opens modal
       state.editPin = candidate;
     }
   }
@@ -928,7 +1223,6 @@
     if (state.pinVerified) {
       showEditorWorkspace();
     } else if (state.editPin) {
-      // Verify stored PIN seamlessly
       verifyPin(state.editPin).then(function (ok) {
         if (ok) {
           setUnlocked(state.editPin);
@@ -977,6 +1271,7 @@
     populateEditorForms();
     switchTab(state.activeTab);
     switchBalanceSubmode(state.balanceSubmode);
+    switchAuditMode(state.auditMode);
 
     if (state.pendingProjectIdForUsage) {
       el.usageProject.value = state.pendingProjectIdForUsage;
@@ -1004,17 +1299,20 @@
     clearEditorError();
     resetConfirmButtons();
 
-    var tabBtns = el.editorWorkspace.querySelectorAll('[data-tab]');
-    tabBtns.forEach(function (btn) {
+    el.editorWorkspace.querySelectorAll('[data-tab]').forEach(function (btn) {
       btn.setAttribute('aria-selected', btn.getAttribute('data-tab') === tabName ? 'true' : 'false');
     });
 
     el.tabBalance.hidden = tabName !== 'balance';
     el.tabProjects.hidden = tabName !== 'projects';
+    el.tabAudit.hidden = tabName !== 'audit';
     el.tabCycle.hidden = tabName !== 'cycle';
 
     if (tabName === 'projects') {
       renderProjectPicker();
+    } else if (tabName === 'audit') {
+      switchAuditMode(state.auditMode);
+      fetchAuditData(false);
     } else if (tabName === 'cycle') {
       populateConfigForm();
       updateApiDisplay();
@@ -1024,8 +1322,7 @@
   function switchBalanceSubmode(mode) {
     state.balanceSubmode = mode;
     clearEditorError();
-    var subBtns = el.tabBalance.querySelectorAll('[data-submode]');
-    subBtns.forEach(function (btn) {
+    el.tabBalance.querySelectorAll('[data-submode]').forEach(function (btn) {
       btn.setAttribute('aria-selected', btn.getAttribute('data-submode') === mode ? 'true' : 'false');
     });
     el.formBalance.hidden = mode !== 'balance';
@@ -1057,24 +1354,39 @@
   }
 
   function refreshModalSelectorsOnly() {
-    var projects = state.snapshot ? state.snapshot.projects : [];
+    var allProjects = state.snapshot ? state.snapshot.projects : [];
+    var pinnedProjects = state.snapshot ? state.snapshot.pinned_projects : [];
 
     var prevBalProj = el.balProject.value;
     el.balProject.innerHTML = '<option value="">Không gán dự án cụ thể</option>' +
-      projects.map(function (p) {
-        return '<option value="' + escapeHtml(p.id) + '">' + escapeHtml(p.name) + (p.priority ? ' ★' : '') + '</option>';
+      allProjects.map(function (p) {
+        var suffix = (p.priority ? ' ★' : '') + (p.pinned ? '' : ' (Chưa ghim)');
+        return '<option value="' + escapeHtml(p.id) + '">' + escapeHtml(p.name) + suffix + '</option>';
       }).join('');
     if (prevBalProj) el.balProject.value = prevBalProj;
 
     var prevUsageProj = el.usageProject.value;
-    var usageOpts = projects.map(function (p) {
-      return '<option value="' + escapeHtml(p.id) + '">' + escapeHtml(p.name) + (p.priority ? ' ★' : '') + '</option>';
+    el.usageProject.innerHTML = allProjects.map(function (p) {
+      var suffix = (p.priority ? ' ★' : '') + (p.pinned ? '' : ' (Chưa ghim)');
+      return '<option value="' + escapeHtml(p.id) + '">' + escapeHtml(p.name) + suffix + '</option>';
     }).join('') + '<option value="' + NEW_PROJECT_SENTINEL + '">+ Tạo dự án mới...</option>';
-    el.usageProject.innerHTML = usageOpts;
     if (prevUsageProj && Array.prototype.some.call(el.usageProject.options, function (o) { return o.value === prevUsageProj; })) {
       el.usageProject.value = prevUsageProj;
     }
     toggleNewProjectInput();
+
+    // Pinned project selector for Audit Tab (session mode)
+    var prevAuditProj = el.auditProject.value;
+    if (pinnedProjects.length) {
+      el.auditProject.innerHTML = pinnedProjects.map(function (p) {
+        return '<option value="' + escapeHtml(p.id) + '">' + escapeHtml(p.name) + (p.priority ? ' ★' : '') + '</option>';
+      }).join('');
+      if (prevAuditProj && Array.prototype.some.call(el.auditProject.options, function (o) { return o.value === prevAuditProj; })) {
+        el.auditProject.value = prevAuditProj;
+      }
+    } else {
+      el.auditProject.innerHTML = '<option value="">Chưa có dự án đang ghim</option>';
+    }
 
     if (state.activeTab === 'projects') {
       renderProjectPicker();
@@ -1120,8 +1432,14 @@
   }
 
   /* ========================================================================
-     Tab 2: Project Picker & Edit Form
+     Tab 2: Project Picker (All Projects + Pin Badge + Logo Control)
      ======================================================================== */
+  function updatePinStatusBadge() {
+    var isPinned = Boolean(el.projPinned.checked);
+    el.projPinStatusBadge.setAttribute('data-pinned', isPinned ? 'true' : 'false');
+    el.projPinStatusBadge.textContent = isPinned ? 'Đang ghim' : 'Ẩn khỏi báo cáo';
+  }
+
   function renderProjectPicker() {
     var projects = state.snapshot ? state.snapshot.projects : [];
     var chips = [
@@ -1129,9 +1447,12 @@
     ];
     projects.forEach(function (p) {
       var active = state.selectedProjectId === p.id;
+      var tag = p.pinned
+        ? '<span class="chip-pin-tag">Ghim</span>'
+        : '<span class="chip-pin-tag">Ẩn</span>';
       chips.push(
         '<button type="button" class="chip-btn" data-pick-project="' + escapeHtml(p.id) + '" data-active="' + (active ? 'true' : 'false') + '">' +
-        escapeHtml(p.name) +
+          '<span>' + escapeHtml(p.name) + '</span>' + tag +
         '</button>'
       );
     });
@@ -1152,7 +1473,10 @@
       el.projStatus.value = found.status;
       el.projOwner.value = found.owner || '';
       el.projNote.value = found.note || '';
+      el.projPinned.checked = Boolean(found.pinned);
       el.projPriority.checked = Boolean(found.priority);
+      state.projectLogoUrl = found.logo_url || '';
+      el.projLogoUrl.value = state.projectLogoUrl.indexOf('data:image/') === 0 ? '' : state.projectLogoUrl;
       el.btnDeleteProject.hidden = false;
       el.btnSubmitProject.textContent = 'Lưu thay đổi';
     } else {
@@ -1162,10 +1486,16 @@
       el.projStatus.value = 'active';
       el.projOwner.value = 'Team Media';
       el.projNote.value = '';
+      el.projPinned.checked = true;
       el.projPriority.checked = false;
+      state.projectLogoUrl = '';
+      el.projLogoUrl.value = '';
       el.btnDeleteProject.hidden = true;
       el.btnSubmitProject.textContent = 'Thêm dự án';
     }
+    el.projLogoFile.value = '';
+    updatePinStatusBadge();
+    renderProjectLogoPreview();
   }
 
   function populateConfigForm() {
@@ -1179,7 +1509,7 @@
   }
 
   /* ========================================================================
-     Inline 2-Step Confirmation Helper (Zero ugly window.confirm dialogs)
+     Inline 2-Step Confirmation Helper
      ======================================================================== */
   function resetConfirmButtons() {
     [el.btnDeleteProject, el.btnResetCycle].forEach(function (btn) {
@@ -1302,7 +1632,7 @@
       }
     });
 
-    // Tab switching
+    // Main modal tab switching
     el.editorWorkspace.querySelectorAll('[data-tab]').forEach(function (btn) {
       btn.addEventListener('click', function () {
         switchTab(btn.getAttribute('data-tab'));
@@ -1312,6 +1642,12 @@
     el.tabBalance.querySelectorAll('[data-submode]').forEach(function (btn) {
       btn.addEventListener('click', function () {
         switchBalanceSubmode(btn.getAttribute('data-submode'));
+      });
+    });
+
+    el.tabAudit.querySelectorAll('[data-audit-mode]').forEach(function (btn) {
+      btn.addEventListener('click', function () {
+        switchAuditMode(btn.getAttribute('data-audit-mode'));
       });
     });
 
@@ -1395,7 +1731,7 @@
       }
     });
 
-    // Tab 2: Project Picker click
+    // Tab 2: Project Picker & Logo Controls
     el.projectPicker.addEventListener('click', function (ev) {
       var btn = ev.target.closest('[data-pick-project]');
       if (!btn) return;
@@ -1403,7 +1739,52 @@
       renderProjectPicker();
     });
 
-    // Tab 2: Save Project
+    el.projPinned.addEventListener('change', updatePinStatusBadge);
+
+    el.projName.addEventListener('input', function () {
+      if (!state.projectLogoUrl) renderProjectLogoPreview();
+    });
+
+    el.btnUploadLogo.addEventListener('click', function () {
+      el.projLogoFile.click();
+    });
+
+    el.projLogoFile.addEventListener('change', async function () {
+      var file = el.projLogoFile.files && el.projLogoFile.files[0];
+      if (!file) return;
+      clearEditorError();
+      try {
+        var dataUrl = await processLogoFile(file);
+        state.projectLogoUrl = dataUrl;
+        el.projLogoUrl.value = '';
+        renderProjectLogoPreview();
+      } catch (err) {
+        showEditorError(err.message);
+      } finally {
+        el.projLogoFile.value = '';
+      }
+    });
+
+    el.projLogoUrl.addEventListener('input', function () {
+      var raw = el.projLogoUrl.value.trim();
+      if (raw === '') {
+        if (state.projectLogoUrl.indexOf('data:image/') !== 0) {
+          state.projectLogoUrl = '';
+        }
+      } else {
+        state.projectLogoUrl = raw;
+      }
+      renderProjectLogoPreview();
+    });
+
+    el.btnClearLogo.addEventListener('click', function () {
+      state.projectLogoUrl = '';
+      el.projLogoUrl.value = '';
+      el.projLogoFile.value = '';
+      renderProjectLogoPreview();
+    });
+
+    // Tab 2: Save Project (includes pinned + logo_url)
     el.formProject.addEventListener('submit', async function (ev) {
       ev.preventDefault();
       clearEditorError();
@@ -1412,6 +1793,12 @@
         showEditorError('Vui lòng nhập tên dự án.');
         return;
       }
+      var logoVal = state.projectLogoUrl.trim();
+      if (logoVal && !isSafeImageUrl(logoVal)) {
+        showEditorError('URL logo không hợp lệ. Vui lòng dùng ảnh tải lên hoặc đường dẫn https://...');
+        return;
+      }
+
       var creditsUsed = Math.max(0, Math.round(Number(el.projCredits.value) || 0));
 
       el.btnSubmitProject.disabled = true;
@@ -1422,7 +1809,9 @@
           status: el.projStatus.value,
           owner: el.projOwner.value.trim() || 'Team Media',
           note: el.projNote.value.trim(),
-          priority: Boolean(el.projPriority.checked)
+          pinned: Boolean(el.projPinned.checked),
+          priority: Boolean(el.projPriority.checked),
+          logo_url: logoVal
         };
         if (el.projId.value) {
           payload.id = String(el.projId.value);
@@ -1459,7 +1848,45 @@
       }
     });
 
-    // Tab 3: Top-up supplemental pack
+    // Tab 3: Refresh Audit & Submit Quick Paste Reconciliation
+    el.btnRefreshAudit.addEventListener('click', function () {
+      fetchAuditData(true).then(function (d) {
+        if (d) showToast('Đã làm mới dữ liệu rà soát ví');
+      });
+    });
+
+    el.formAuditParse.addEventListener('submit', async function (ev) {
+      ev.preventDefault();
+      clearEditorError();
+      var rawText = el.auditRawText.value.trim();
+      if (!rawText) {
+        showEditorError('Vui lòng dán nội dung từ Dreamina trước khi rà soát.');
+        return;
+      }
+
+      el.btnSubmitAudit.disabled = true;
+      try {
+        var payload = {
+          mode: state.auditMode,
+          text: rawText,
+          apply_to_projects: Boolean(el.auditApply.checked),
+          actor: getSavedActor() || 'Team Media'
+        };
+        if (state.auditMode === 'session' && el.auditProject.value) {
+          payload.project_id = String(el.auditProject.value);
+        }
+        await apiMutate('POST', '/api/audit/parse-text', payload);
+        el.auditRawText.value = '';
+        await fetchAuditData(false);
+        showToast('Đã rà soát & đối chiếu dữ liệu Dreamina');
+      } catch (err) {
+        showEditorError(err.message);
+      } finally {
+        el.btnSubmitAudit.disabled = false;
+      }
+    });
+
+    // Tab 4: Top-up supplemental pack
     el.formTopup.addEventListener('submit', async function (ev) {
       ev.preventDefault();
       clearEditorError();
@@ -1489,7 +1916,7 @@
       }
     });
 
-    // Tab 3: Update Account & Cycle Config
+    // Tab 4: Update Account & Cycle Config
     el.formConfig.addEventListener('submit', async function (ev) {
       ev.preventDefault();
       clearEditorError();
@@ -1522,7 +1949,7 @@
       }
     });
 
-    // Tab 3: Reset New Cycle (2-step inline confirm)
+    // Tab 4: Reset New Cycle (2-step inline confirm)
     el.btnResetCycle.addEventListener('click', async function () {
       if (!requireSecondTap(el.btnResetCycle, 'resetCycle', 'Nhấn lại để xác nhận Reset', 'Reset chu kỳ mới')) {
         return;
@@ -1543,7 +1970,7 @@
       }
     });
 
-    // Tab 3: Custom Backend API URL override
+    // Tab 4: Custom Backend API URL override
     el.btnSaveApi.addEventListener('click', function () {
       var val = el.customApiInput.value.trim();
       CFG.setCustomApiBase(val);
@@ -1575,15 +2002,12 @@
     updateApiDisplay();
     bindEvents();
 
-    // Refresh relative timestamps gently every 20s
     setInterval(updateRelativeTimestamp, 20000);
 
-    // Fetch initial state immediately, then open SSE realtime stream
     fetchState(true).finally(function () {
       connectSSE();
     });
 
-    // Check saved/desktop PIN silently in background
     tryAutoUnlock();
   }
 
