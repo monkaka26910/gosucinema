@@ -54,9 +54,13 @@
           </svg>
         </button>
 
-        <button type="button" class="primary-btn" id="open-update-btn">
+        <button type="button" class="primary-btn" id="open-update-btn" data-unlocked="false">
+          <svg class="lock-icon" id="lock-indicator" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <rect x="4" y="11" width="16" height="10" rx="2"/>
+            <path d="M8 11V7a4 4 0 0 1 8 0v4"/>
+          </svg>
           <span class="unlock-dot" id="unlock-indicator" hidden aria-hidden="true"></span>
-          <span>Cập nhật</span>
+          <span id="open-update-label">Quản trị</span>
         </button>
       </div>
     </div>
@@ -97,9 +101,6 @@
         </div>
       </div>
 
-      <!-- Quiet inline wallet breakdown (Subscription / Purchased / Daily Free) -->
-      <div class="wallet-breakdown tabular" id="wallet-breakdown" hidden></div>
-
       <div class="progress-wrap">
         <div class="progress-track" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" id="progress-track">
           <div class="progress-fill" id="progress-fill" data-level="safe"></div>
@@ -125,14 +126,18 @@
         </div>
       </div>
 
-      <div class="hero-note" id="priority-note-wrap">
-        <span class="hero-note-dot" aria-hidden="true"></span>
-        <span id="priority-note">Ưu tiên Z12 · Hết mới request mua gói bổ sung</span>
+      <!-- Quiet Hero Footer: General Note + Subtle Secondary VND Estimate -->
+      <div class="hero-footer" id="hero-footer" hidden>
+        <div class="hero-note" id="priority-note-wrap" hidden>
+          <span class="hero-note-dot" aria-hidden="true"></span>
+          <span id="priority-note"></span>
+        </div>
+        <span class="hero-vnd-meta tabular" id="hero-vnd-meta" hidden></span>
       </div>
     </section>
 
-    <!-- 2. Pinned Projects Usage Section -->
-    <section class="section" aria-label="Credit theo dự án đang ghim">
+    <!-- 2. Pinned Projects Usage Section (Dominant Focal Block) -->
+    <section class="section section--projects" aria-label="Credit theo dự án đang ghim">
       <div class="section-header">
         <div class="section-title-group">
           <h2 class="section-title">Đang dùng cho các dự án</h2>
@@ -146,18 +151,18 @@
       </div>
     </section>
 
-    <!-- 3. Compact Recent Updates -->
-    <section class="section" aria-label="Lịch sử cập nhật gần nhất">
+    <!-- 3. Ultra-Compact Recent Updates (3 rows by default) -->
+    <section class="section section--logs" aria-label="Lịch sử cập nhật gần nhất">
       <div class="section-header">
         <div class="section-title-group">
-          <h2 class="section-title">Cập nhật gần nhất</h2>
+          <h2 class="section-title section-title--subtle">Cập nhật gần nhất</h2>
           <span class="section-count tabular" id="logs-count">0</span>
         </div>
         <button type="button" class="text-btn" id="toggle-logs-btn" hidden>Thu gọn</button>
       </div>
 
-      <div class="list-card" id="logs-list">
-        <div class="empty-state">Chưa có cập nhật nào.</div>
+      <div class="list-card list-card--compact" id="logs-list">
+        <div class="empty-state compact">Chưa có cập nhật nào.</div>
       </div>
     </section>
   </main>
@@ -169,15 +174,15 @@
     </div>
   </footer>
 
-  <!-- Quick Update Sheet / Modal -->
+  <!-- Admin Quick Update Sheet / Modal -->
   <div class="modal-backdrop" id="update-modal" data-open="false" role="dialog" aria-modal="true" aria-labelledby="modal-title" hidden>
     <div class="modal-sheet">
       <div class="modal-header">
         <div class="modal-title-wrap">
-          <h2 class="modal-title" id="modal-title">Cập nhật</h2>
+          <h2 class="modal-title" id="modal-title">Quản trị</h2>
         </div>
         <div class="modal-header-right">
-          <button type="button" class="text-btn" id="lock-pin-btn" hidden title="Khóa chỉnh sửa trên thiết bị này">Khóa</button>
+          <button type="button" class="text-btn" id="lock-pin-btn" hidden title="Khóa chế độ quản trị trên thiết bị này">Khóa</button>
           <button type="button" class="icon-btn" id="close-modal-btn" aria-label="Đóng">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
               <path d="M18 6L6 18M6 6l12 12"/>
@@ -190,15 +195,15 @@
         <!-- Inline PIN Verification Gate -->
         <form class="pin-gate" id="pin-gate-form" hidden>
           <div class="pin-heading">
-            <h3>Nhập mã nhóm để cập nhật</h3>
-            <p>Mọi thành viên đều có thể xem trực tiếp. Nhập mã nhóm một lần để lưu trên thiết bị này.</p>
+            <h3>Nhập mã quản trị để chỉnh sửa</h3>
+            <p>Mọi thành viên đều có thể xem trực tiếp. Chỉ quản trị viên mới có thể chỉnh sửa dự án, logo và số dư.</p>
           </div>
           <div class="pin-input-row">
             <input
               type="password"
               class="input"
               id="pin-input"
-              placeholder="Nhập mã nhóm..."
+              placeholder="Nhập mã quản trị..."
               autocomplete="current-password"
               required
             />
@@ -207,7 +212,7 @@
           <div class="form-error" id="pin-error" hidden></div>
         </form>
 
-        <!-- Unlocked Editor Workspace (4 Minimalist Tabs) -->
+        <!-- Unlocked Admin Workspace (4 Minimalist Tabs) -->
         <div id="editor-workspace" hidden>
           <div class="segmented four-col" role="tablist" aria-label="Mục cập nhật">
             <button type="button" class="seg-btn" role="tab" data-tab="balance" aria-selected="true">Số dư &amp; Dùng</button>
@@ -229,7 +234,7 @@
             <form class="form-stack" id="form-balance">
               <div class="field">
                 <label class="field-label" for="bal-remaining">Số dư hiện tại trên Dreamina</label>
-                <input type="number" class="input input-hero tabular" id="bal-remaining" min="0" step="1" placeholder="10379" required />
+                <input type="number" class="input input-hero tabular" id="bal-remaining" min="0" step="1" placeholder="9365" required />
                 <span class="field-hint tabular" id="bal-diff-preview">Nhập đúng con số đang hiển thị trên Dreamina.</span>
               </div>
 
@@ -245,7 +250,7 @@
                 </div>
                 <div class="field">
                   <label class="field-label" for="bal-note">Ghi chú ngắn</label>
-                  <input type="text" class="input" id="bal-note" placeholder="VD: Render Z12 scene 3" maxlength="120" />
+                  <input type="text" class="input" id="bal-note" placeholder="VD: Render scene 3" maxlength="120" />
                 </div>
               </div>
 
@@ -263,7 +268,7 @@
 
               <div class="field" id="usage-new-project-wrap" hidden>
                 <label class="field-label" for="usage-new-project-name">Tên dự án mới</label>
-                <input type="text" class="input" id="usage-new-project-name" placeholder="VD: Z12 Teaser 2" maxlength="80" />
+                <input type="text" class="input" id="usage-new-project-name" placeholder="VD: Teaser 2" maxlength="80" />
               </div>
 
               <div class="field">
@@ -293,7 +298,7 @@
             </form>
           </div>
 
-          <!-- TAB 2: Projects CRUD (All Projects + Pin Toggle + Logo Upload/URL) -->
+          <!-- TAB 2: Projects CRUD (All Projects + Pin Toggle + Instant Logo Upload) -->
           <div id="tab-projects" hidden style="margin-top: 16px;">
             <div class="form-stack">
               <div class="field">
@@ -307,7 +312,7 @@
               <form class="form-stack" id="form-project">
                 <input type="hidden" id="proj-id" />
 
-                <!-- Project Logo Upload + URL + Preview -->
+                <!-- Project Logo Upload + URL + Preview (Instant Save on Existing Project) -->
                 <div class="field">
                   <span class="field-label">Logo dự án (hiển thị 36×36 trên báo cáo)</span>
                   <div class="logo-control">
@@ -325,14 +330,14 @@
                         placeholder="Hoặc dán URL ảnh https://..."
                         autocomplete="off"
                       />
-                      <span class="field-hint" id="proj-logo-hint">Ảnh tải lên tự động cắt vuông 128×128 gọn nhẹ.</span>
+                      <span class="field-hint" id="proj-logo-hint">Ảnh tải lên tự động cắt vuông 128×128 và lưu ngay.</span>
                     </div>
                   </div>
                 </div>
 
                 <div class="field">
                   <label class="field-label" for="proj-name">Tên dự án</label>
-                  <input type="text" class="input" id="proj-name" placeholder="VD: Z12 TVC" maxlength="80" required />
+                  <input type="text" class="input" id="proj-name" placeholder="VD: SROM EU TVC" maxlength="80" required />
                 </div>
 
                 <div class="form-grid-2">
@@ -352,12 +357,12 @@
 
                 <div class="form-grid-2">
                   <div class="field">
-                    <label class="field-label" for="proj-owner">Phụ trách</label>
-                    <input type="text" class="input" id="proj-owner" placeholder="Team Media" maxlength="50" />
+                    <label class="field-label" for="proj-owner">Phụ trách (tùy chọn)</label>
+                    <input type="text" class="input" id="proj-owner" placeholder="Để trống nếu dùng chung" maxlength="50" />
                   </div>
                   <div class="field">
-                    <label class="field-label" for="proj-note">Ghi chú ngắn</label>
-                    <input type="text" class="input" id="proj-note" placeholder="Ưu tiên chính..." maxlength="120" />
+                    <label class="field-label" for="proj-note">Ghi chú ngắn (tùy chọn)</label>
+                    <input type="text" class="input" id="proj-note" placeholder="VD: Chiến dịch tháng 11..." maxlength="120" />
                   </div>
                 </div>
 
@@ -365,10 +370,6 @@
                   <label class="checkbox-row">
                     <input type="checkbox" id="proj-pinned" checked />
                     <span>Ghim lên báo cáo Web (Pin) — chỉ dự án ghim mới tính vào báo cáo chính</span>
-                  </label>
-                  <label class="checkbox-row">
-                    <input type="checkbox" id="proj-priority" />
-                    <span>Đánh dấu là dự án Ưu tiên (ghim lên đầu)</span>
                   </label>
                 </div>
 
@@ -400,7 +401,7 @@
                 </div>
               </div>
 
-              <!-- Wallet Breakdown & Last Audit Meta -->
+              <!-- Wallet Breakdown & Last Audit Meta (Admin-only inside Audit tab) -->
               <div class="audit-wallet-strip">
                 <div class="audit-wallet-line tabular" id="audit-wallet-line">Đăng ký — · Đã mua — · Tặng ngày —</div>
                 <div class="audit-meta-row">
@@ -480,7 +481,7 @@
                 </div>
                 <div class="field">
                   <label class="field-label" for="topup-note">Ghi chú gói bổ sung</label>
-                  <input type="text" class="input" id="topup-note" placeholder="VD: Mua thêm gói nhỏ cho Z12" maxlength="120" />
+                  <input type="text" class="input" id="topup-note" placeholder="VD: Mua thêm gói nhỏ bổ sung" maxlength="120" />
                 </div>
                 <div class="form-actions end">
                   <button type="submit" class="secondary-btn" id="btn-submit-topup">+ Cộng gói bổ sung</button>
@@ -514,8 +515,13 @@
                 </div>
 
                 <div class="field">
-                  <label class="field-label" for="cfg-note">Ghi chú ưu tiên (hiển thị dưới số dư)</label>
-                  <input type="text" class="input" id="cfg-note" maxlength="160" />
+                  <label class="field-label" for="cfg-price-vnd">Giá gói tháng (VNĐ · dùng quy đổi ước tính)</label>
+                  <input type="number" class="input tabular" id="cfg-price-vnd" min="0" step="1000" placeholder="2099000" />
+                </div>
+
+                <div class="field">
+                  <label class="field-label" for="cfg-note">Ghi chú chung (hiển thị dưới số dư)</label>
+                  <input type="text" class="input" id="cfg-note" maxlength="160" placeholder="VD: Dùng chung cho toàn bộ dự án Media" />
                 </div>
 
                 <div class="form-actions">

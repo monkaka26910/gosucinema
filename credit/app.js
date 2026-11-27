@@ -1,13 +1,15 @@
 /**
- * GOSU Credit Manager — Minimalist Realtime Frontend (v1.1)
- * Zero dependencies · Pure Vanilla JS · SSE Realtime + Pinned-Only Report + Project Logos + Wallet Audit
+ * GOSU Credit Manager — Minimalist Realtime Frontend (v1.5)
+ * Zero dependencies · Pure Vanilla JS · SSE Realtime · Strict Admin Editing
+ * Clean Pinned Projects · Instant Avatar Save · Subtle Secondary VND · Compact 3-Row Logs
  */
 (function () {
   'use strict';
 
   var CFG = window.GOSU_CONFIG;
   var NEW_PROJECT_SENTINEL = '__NEW__';
-  var DEFAULT_LOG_LIMIT = 8;
+  var DEFAULT_LOG_LIMIT = 3;
+  var DEFAULT_MONTHLY_PRICE_VND = 2099000;
   var MAX_LOGO_DATA_URL_BYTES = 195 * 1024;
 
   var state = {
@@ -26,7 +28,7 @@
     sseRetryDelay: 1200,
     sseRetryTimer: null,
     pollFallbackTimer: null,
-    pendingProjectIdForUsage: null,
+    pendingEditProjectId: null,
     confirmTimers: {},
     toastTimer: null
   };
@@ -47,7 +49,9 @@
       iconSun: $('icon-sun'),
       iconMoon: $('icon-moon'),
       openUpdateBtn: $('open-update-btn'),
+      lockIndicator: $('lock-indicator'),
       unlockIndicator: $('unlock-indicator'),
+      openUpdateLabel: $('open-update-label'),
       offlineBanner: $('offline-banner'),
       offlineBannerMsg: $('offline-banner-msg'),
       retryConnectBtn: $('retry-connect-btn'),
@@ -59,7 +63,6 @@
       totalCredits: $('total-credits'),
       topupBadge: $('topup-badge'),
       remainingPctBadge: $('remaining-pct-badge'),
-      walletBreakdown: $('wallet-breakdown'),
       progressTrack: $('progress-track'),
       progressFill: $('progress-fill'),
       progressTopupMarker: $('progress-topup-marker'),
@@ -67,8 +70,10 @@
       kpiUsedPct: $('kpi-used-pct'),
       kpiResetDate: $('kpi-reset-date'),
       kpiDaysLeft: $('kpi-days-left'),
+      heroFooter: $('hero-footer'),
       priorityNoteWrap: $('priority-note-wrap'),
       priorityNote: $('priority-note'),
+      heroVndMeta: $('hero-vnd-meta'),
 
       projectsCount: $('projects-count'),
       projectsTotalMeta: $('projects-total-meta'),
@@ -80,6 +85,7 @@
       footerApiMode: $('footer-api-mode'),
 
       modal: $('update-modal'),
+      modalTitle: $('modal-title'),
       closeModalBtn: $('close-modal-btn'),
       lockPinBtn: $('lock-pin-btn'),
       pinGateForm: $('pin-gate-form'),
@@ -128,7 +134,6 @@
       projOwner: $('proj-owner'),
       projNote: $('proj-note'),
       projPinned: $('proj-pinned'),
-      projPriority: $('proj-priority'),
       btnDeleteProject: $('btn-delete-project'),
       btnSubmitProject: $('btn-submit-project'),
 
@@ -159,6 +164,7 @@
       cfgResetDay: $('cfg-reset-day'),
       cfgAccount: $('cfg-account'),
       cfgPlan: $('cfg-plan'),
+      cfgPriceVnd: $('cfg-price-vnd'),
       cfgNote: $('cfg-note'),
       btnResetCycle: $('btn-reset-cycle'),
       btnSubmitConfig: $('btn-submit-config'),
@@ -189,6 +195,18 @@
     var v = Number(n);
     if (!Number.isFinite(v)) return '0.0%';
     return pctFmt.format(Math.max(0, Math.min(100, v))) + '%';
+  }
+
+  function fmtVndCompact(vnd) {
+    var v = Number(vnd);
+    if (!Number.isFinite(v) || v <= 0) return '';
+    if (v >= 1000000) {
+      return '~' + (v / 1000000).toFixed(2) + ' tr ₫';
+    }
+    if (v >= 1000) {
+      return '~' + Math.round(v / 1000) + 'k ₫';
+    }
+    return '~' + fmtNum(v) + ' ₫';
   }
 
   function escapeHtml(str) {
@@ -387,17 +405,21 @@
   }
 
   /* ========================================================================
-     Normalize Backend Snapshot (v1.1: wallet breakdown, pinned, logo_url, report)
+     Normalize Backend Snapshot (v1.5: clean sorting, VND estimates, audit count)
      ======================================================================== */
-  function normalizeProject(p) {
+  function normalizeProject(p, vndPerCredit) {
+    var creditsUsed = Number(p.credits_used != null ? p.credits_used : 0);
+    var valueVnd = p.value_vnd != null
+      ? Number(p.value_vnd)
+      : (vndPerCredit > 0 ? Math.round(creditsUsed * vndPerCredit) : 0);
     return {
       id: String(p.id != null ? p.id : p.name),
       name: String(p.name || 'Chưa đặt tên'),
-      priority: Boolean(p.priority),
       pinned: p.pinned === undefined ? true : Boolean(p.pinned),
       logo_url: isSafeImageUrl(p.logo_url) ? String(p.logo_url).trim() : '',
       status: p.status === 'done' || p.status === 'paused' ? p.status : 'active',
-      credits_used: Number(p.credits_used != null ? p.credits_used : 0),
+      credits_used: creditsUsed,
+      value_vnd: Math.max(0, Math.round(valueVnd)),
       audit_credits: Math.max(0, Math.round(Number(p.audit_credits || 0))),
       audit_items_count: Math.max(0, Math.round(Number(p.audit_items_count || 0))),
       owner: p.owner || '',
@@ -405,9 +427,8 @@
     };
   }
 
-  function sortProjectsForReport(list) {
+  function sortProjectsClean(list) {
     return list.slice().sort(function (a, b) {
-      if (a.priority !== b.priority) return a.priority ? -1 : 1;
       var statusWeight = { active: 0, paused: 1, done: 2 };
       var sa = statusWeight[a.status] != null ? statusWeight[a.status] : 0;
       var sb = statusWeight[b.status] != null ? statusWeight[b.status] : 0;
@@ -432,11 +453,21 @@
       ? Number(acc.used_pct)
       : (totalAvailable > 0 ? (used / totalAvailable) * 100 : 0);
 
-    var hasWalletBreakdown = (
-      acc.subscription_credits != null ||
-      acc.purchased_credits != null ||
-      acc.daily_free_credits != null
-    );
+    var monthlyPriceVnd = acc.monthly_price_vnd != null
+      ? Math.max(0, Number(acc.monthly_price_vnd))
+      : DEFAULT_MONTHLY_PRICE_VND;
+    var vndPerCredit = acc.vnd_per_credit != null
+      ? Number(acc.vnd_per_credit)
+      : (monthlyQuota > 0 && monthlyPriceVnd > 0 ? monthlyPriceVnd / monthlyQuota : 0);
+    var remainingValueVnd = acc.remaining_value_vnd != null
+      ? Number(acc.remaining_value_vnd)
+      : (vndPerCredit > 0 ? Math.round(remaining * vndPerCredit) : 0);
+    var usedValueVnd = acc.used_value_vnd != null
+      ? Number(acc.used_value_vnd)
+      : (vndPerCredit > 0 ? Math.round(used * vndPerCredit) : 0);
+    var totalValueVnd = acc.total_value_vnd != null
+      ? Number(acc.total_value_vnd)
+      : (vndPerCredit > 0 ? Math.round(totalAvailable * vndPerCredit) : monthlyPriceVnd);
 
     var account = {
       platform: acc.platform || 'Dreamina AI',
@@ -449,31 +480,36 @@
       used_credits: used,
       remaining_pct: remPct,
       used_pct: usedPct,
-      has_wallet_breakdown: hasWalletBreakdown,
+      monthly_price_vnd: Math.round(monthlyPriceVnd),
+      vnd_per_credit: vndPerCredit,
+      remaining_value_vnd: Math.max(0, Math.round(remainingValueVnd)),
+      used_value_vnd: Math.max(0, Math.round(usedValueVnd)),
+      total_value_vnd: Math.max(0, Math.round(totalValueVnd)),
       subscription_credits: acc.subscription_credits != null ? Number(acc.subscription_credits) : null,
       purchased_credits: acc.purchased_credits != null ? Number(acc.purchased_credits) : null,
       daily_free_credits: acc.daily_free_credits != null ? Number(acc.daily_free_credits) : null,
       reset_day: Number(acc.reset_day != null ? acc.reset_day : 4),
       next_reset_date: acc.next_reset_date || '',
       days_until_reset: acc.days_until_reset != null ? Number(acc.days_until_reset) : null,
-      priority_note: acc.priority_note != null ? acc.priority_note : '',
+      priority_note: acc.priority_note != null ? String(acc.priority_note) : '',
       last_audit_at: acc.last_audit_at || '',
       last_updated_at: acc.last_synced_at || acc.updated_at || (raw.sync_meta && raw.sync_meta.last_synced_at) || raw.server_time || '',
       last_sync_source: acc.last_sync_source || acc.sync_source || (raw.sync_meta && raw.sync_meta.last_sync_source) || 'manual'
     };
 
     var allProjectsRaw = Array.isArray(raw.projects) ? raw.projects : [];
-    var allProjects = allProjectsRaw.map(normalizeProject).sort(function (a, b) {
+    var allProjects = allProjectsRaw.map(function (p) {
+      return normalizeProject(p, vndPerCredit);
+    }).sort(function (a, b) {
       if (a.pinned !== b.pinned) return a.pinned ? -1 : 1;
-      if (a.priority !== b.priority) return a.priority ? -1 : 1;
       if (b.credits_used !== a.credits_used) return b.credits_used - a.credits_used;
       return a.name.localeCompare(b.name, 'vi');
     });
 
     var pinnedRaw = Array.isArray(raw.pinned_projects)
-      ? raw.pinned_projects.map(normalizeProject).filter(function (p) { return p.pinned !== false; })
+      ? raw.pinned_projects.map(function (p) { return normalizeProject(p, vndPerCredit); }).filter(function (p) { return p.pinned !== false; })
       : allProjects.filter(function (p) { return p.pinned !== false; });
-    var pinnedProjects = sortProjectsForReport(pinnedRaw);
+    var pinnedProjects = sortProjectsClean(pinnedRaw);
 
     var logsRaw = Array.isArray(raw.logs) ? raw.logs : [];
     var logs = logsRaw.map(function (l) {
@@ -502,7 +538,7 @@
   }
 
   /* ========================================================================
-     Render Dashboard (Observation-First, Pinned-Only Report, Zero Clutter)
+     Render Dashboard (Observation-First, Strictly Read-Only for Non-Admins)
      ======================================================================== */
   function renderSnapshot(nextRaw, isRealtimeUpdate) {
     var next = normalizeSnapshot(nextRaw);
@@ -543,17 +579,6 @@
     el.remainingPctBadge.setAttribute('data-level', level);
     el.remainingPctBadge.textContent = fmtPct(acc.remaining_pct) + ' còn lại';
 
-    // Quiet inline wallet breakdown
-    if (acc.has_wallet_breakdown) {
-      var subVal = acc.subscription_credits != null ? fmtNum(acc.subscription_credits) : '0';
-      var purVal = acc.purchased_credits != null ? fmtNum(acc.purchased_credits) : '0';
-      var dayVal = acc.daily_free_credits != null ? fmtNum(acc.daily_free_credits) : '0';
-      el.walletBreakdown.hidden = false;
-      el.walletBreakdown.textContent = 'Đăng ký ' + subVal + ' · Đã mua ' + purVal + ' · Tặng ngày ' + dayVal;
-    } else {
-      el.walletBreakdown.hidden = true;
-    }
-
     // Progress Bar
     var fillPct = Math.max(0, Math.min(100, acc.remaining_pct));
     el.progressFill.setAttribute('data-level', level);
@@ -569,9 +594,10 @@
       el.progressTopupMarker.hidden = true;
     }
 
-    // 2 Clean Inline KPIs (Đã dùng + Reset chu kỳ)
+    // 2 Clean Inline KPIs (Đã dùng + Reset chu kỳ) with subtle secondary VND
     el.kpiUsed.textContent = fmtNum(acc.used_credits);
-    el.kpiUsedPct.textContent = fmtPct(acc.used_pct) + ' tổng gói';
+    var usedVndStr = acc.monthly_price_vnd > 0 ? fmtVndCompact(acc.used_value_vnd) : '';
+    el.kpiUsedPct.textContent = fmtPct(acc.used_pct) + ' tổng gói' + (usedVndStr ? (' · ' + usedVndStr) : '');
 
     el.kpiResetDate.textContent = acc.next_reset_date
       ? formatDayMonth(acc.next_reset_date)
@@ -584,21 +610,32 @@
       el.kpiDaysLeft.textContent = 'Reset ngày ' + acc.reset_day + ' hàng tháng';
     }
 
-    // Priority Note
-    if (acc.priority_note && acc.priority_note.trim()) {
-      el.priorityNoteWrap.hidden = false;
-      el.priorityNote.textContent = acc.priority_note.trim();
-    } else {
-      el.priorityNoteWrap.hidden = true;
+    // Quiet Hero Footer: General Note + Subtle Secondary VND Estimate
+    var cleanNote = acc.priority_note.trim();
+    var hasNote = Boolean(cleanNote);
+    el.priorityNoteWrap.hidden = !hasNote;
+    if (hasNote) {
+      el.priorityNote.textContent = cleanNote;
     }
 
-    // Pinned-Only Projects List
-    renderProjects(next.pinned_projects, prev ? prev.pinned_projects : null, isRealtimeUpdate);
+    var hasVndMeta = acc.monthly_price_vnd > 0;
+    if (hasVndMeta) {
+      var planPriceStr = fmtVndCompact(acc.monthly_price_vnd);
+      var remVndStr = fmtVndCompact(acc.remaining_value_vnd);
+      el.heroVndMeta.hidden = false;
+      el.heroVndMeta.textContent = planLabel + ' ' + planPriceStr + '/tháng' + (remVndStr ? (' · Còn ' + remVndStr) : '');
+    } else {
+      el.heroVndMeta.hidden = true;
+    }
+    el.heroFooter.hidden = !hasNote && !hasVndMeta;
 
-    // Recent Updates Timeline
+    // Pinned-Only Projects List
+    renderProjects(next.pinned_projects, prev ? prev.pinned_projects : null, isRealtimeUpdate, acc.monthly_price_vnd > 0);
+
+    // Ultra-Compact Recent Updates Timeline
     renderLogs(next.logs);
 
-    // Refresh open modal selectors & live audit tab on SSE updates
+    // Refresh ONLY modal dropdowns & chip labels on SSE (NEVER overwrite open form or logo!)
     if (state.modalOpen && state.pinVerified) {
       refreshModalSelectorsOnly();
       if (state.activeTab === 'audit' && isRealtimeUpdate) {
@@ -617,10 +654,9 @@
     el.lastUpdated.title = acc.last_updated_at ? formatFullTime(acc.last_updated_at) : '';
   }
 
-  function renderProjects(pinnedProjects, prevPinned, isRealtimeUpdate) {
+  function renderProjects(pinnedProjects, prevPinned, isRealtimeUpdate, showVnd) {
     el.projectsCount.textContent = String(pinnedProjects.length);
 
-    // Compute total strictly from pinned projects only
     var totalPinnedCredits = pinnedProjects.reduce(function (sum, p) {
       return sum + Math.max(0, p.credits_used);
     }, 0);
@@ -631,7 +667,7 @@
       : '';
 
     if (!pinnedProjects.length) {
-      el.projectsList.innerHTML = '<div class="empty-state">Chưa có dự án nào được ghim lên báo cáo. Mở “Cập nhật → Dự án” để ghim dự án.</div>';
+      el.projectsList.innerHTML = '<div class="empty-state">Chưa có dự án nào được ghim lên báo cáo.</div>';
       return;
     }
 
@@ -640,14 +676,24 @@
       prevPinned.forEach(function (p) { prevMap[p.id] = p.credits_used; });
     }
 
+    var editable = Boolean(state.pinVerified);
+    var editSvg =
+      '<svg class="project-edit-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' +
+        '<path d="M12 20h9"/>' +
+        '<path d="M16.5 3.5a2.12 2.12 0 1 1 3 3L7 19l-4 1 1-4Z"/>' +
+      '</svg>';
+
     var html = pinnedProjects.map(function (p) {
       var sharePct = totalPinnedCredits > 0 ? (p.credits_used / totalPinnedCredits) * 100 : 0;
       var barPct = Math.max(p.credits_used > 0 ? 3 : 0, Math.min(100, (p.credits_used / denominator) * 100));
+
+      // Clean minimal metadata: ONLY show real generation count or custom note (zero "Team Media" / "Đang chạy" boilerplate)
       var metaParts = [];
       if (p.audit_items_count > 0) metaParts.push(fmtNum(p.audit_items_count) + ' lượt tạo');
-      if (p.owner) metaParts.push(p.owner);
-      if (p.note) metaParts.push(p.note);
-      var metaStr = metaParts.join(' · ') || 'Nhấn để ghi nhận credit';
+      var customNote = String(p.note || '').trim();
+      if (customNote) metaParts.push(customNote);
+      var metaStr = metaParts.join(' · ');
+
       var changed = isRealtimeUpdate && prevMap[p.id] != null && prevMap[p.id] !== p.credits_used;
       var initials = getProjectInitials(p.name);
       var hasLogo = Boolean(p.logo_url);
@@ -658,34 +704,47 @@
           '</div>'
         : '<div class="project-logo" data-has-img="false">' + escapeHtml(initials) + '</div>';
 
+      // Only show status chip for non-active projects (Hoàn thành / Tạm dừng)
+      var nonActiveStatusHtml = p.status !== 'active'
+        ? '<span class="status-chip" data-status="' + escapeHtml(p.status) + '">' +
+            '<span class="status-dot" aria-hidden="true"></span>' +
+            '<span>' + escapeHtml(statusLabel(p.status)) + '</span>' +
+          '</span>'
+        : '';
+
+      var vndStr = (showVnd && p.value_vnd > 0) ? fmtVndCompact(p.value_vnd) : '';
+      var subMetricText = fmtPct(sharePct) + (vndStr ? (' · ' + vndStr) : '');
+
+      var rowAttrs =
+        'class="project-row" ' +
+        'data-project-id="' + escapeHtml(p.id) + '" ' +
+        'data-editable="' + (editable ? 'true' : 'false') + '" ' +
+        'data-status="' + escapeHtml(p.status) + '"' +
+        (editable ? ' role="button" tabindex="0" title="Nhấn để sửa hoặc đổi logo ' + escapeHtml(p.name) + '"' : '');
+
       return (
-        '<button type="button" class="project-row" data-project-id="' + escapeHtml(p.id) + '" ' +
-        'data-priority="' + (p.priority ? 'true' : 'false') + '" data-status="' + escapeHtml(p.status) + '" ' +
-        'title="Nhấn để ghi nhận nhanh credit cho ' + escapeHtml(p.name) + '">' +
+        '<div ' + rowAttrs + '>' +
           '<div class="project-identity">' +
             logoHtml +
             '<div class="project-main">' +
               '<div class="project-title-line">' +
                 '<span class="project-name">' + escapeHtml(p.name) + '</span>' +
-                (p.priority ? '<span class="priority-pill">Ưu tiên</span>' : '') +
-                '<span class="status-chip" data-status="' + escapeHtml(p.status) + '">' +
-                  '<span class="status-dot" aria-hidden="true"></span>' +
-                  '<span>' + escapeHtml(statusLabel(p.status)) + '</span>' +
-                '</span>' +
+                nonActiveStatusHtml +
+                (editable ? editSvg : '') +
               '</div>' +
-              '<div class="project-meta tabular">' + escapeHtml(metaStr) + '</div>' +
+              (metaStr ? '<div class="project-meta tabular">' + escapeHtml(metaStr) + '</div>' : '') +
             '</div>' +
           '</div>' +
           '<div class="project-metrics">' +
             '<div class="project-numbers tabular">' +
               '<span class="project-credits' + (changed ? ' value-flash' : '') + '">' + fmtNum(p.credits_used) + '</span>' +
-              '<span class="project-share">' + fmtPct(sharePct) + '</span>' +
+              '<span class="project-submetrics">' + escapeHtml(subMetricText) + '</span>' +
             '</div>' +
             '<div class="project-bar-track" aria-hidden="true">' +
               '<div class="project-bar-fill" style="width:' + barPct.toFixed(1) + '%"></div>' +
             '</div>' +
           '</div>' +
-        '</button>'
+        '</div>'
       );
     }).join('');
 
@@ -715,7 +774,7 @@
     }
 
     if (!logs.length) {
-      el.logsList.innerHTML = '<div class="empty-state">Chưa có lịch sử cập nhật.</div>';
+      el.logsList.innerHTML = '<div class="empty-state compact">Chưa có lịch sử cập nhật.</div>';
       return;
     }
 
@@ -963,14 +1022,16 @@
       }
       el.btnClearLogo.hidden = false;
       if (url.indexOf('data:image/') === 0) {
-        el.projLogoHint.textContent = 'Đã tải ảnh lên (128×128, ' + Math.max(1, Math.round(url.length / 1024)) + ' KB).';
+        el.projLogoHint.textContent = 'Ảnh tải lên (128×128, ' + Math.max(1, Math.round(url.length / 1024)) + ' KB).';
       } else {
         el.projLogoHint.textContent = 'Đang dùng ảnh từ URL.';
       }
     } else {
       el.projLogoPreview.textContent = initials;
       el.btnClearLogo.hidden = true;
-      el.projLogoHint.textContent = 'Ảnh tải lên tự động cắt vuông 128×128 gọn nhẹ.';
+      el.projLogoHint.textContent = el.projId.value
+        ? 'Chọn ảnh để cắt vuông 128×128 và lưu ngay lên báo cáo.'
+        : 'Ảnh tải lên tự động cắt vuông 128×128 gọn nhẹ.';
     }
   }
 
@@ -1128,7 +1189,7 @@
 
     if (res.status === 401 || res.status === 403) {
       clearSavedPin();
-      showPinGate('Mã nhóm đã hết hiệu lực hoặc không đúng. Vui lòng nhập lại.');
+      showPinGate('Mã quản trị đã hết hiệu lực hoặc không đúng. Vui lòng nhập lại.');
       throw new Error('AUTH_REQUIRED');
     }
     if (!res.ok) {
@@ -1144,16 +1205,46 @@
   }
 
   /* ========================================================================
-     PIN Verification & Desktop Auto-Unlock
+     Admin PIN Verification & Strict Read-Only / Admin UI Sync
      ======================================================================== */
+  function syncAdminUiState() {
+    var unlocked = Boolean(state.pinVerified);
+    if (el.openUpdateBtn) {
+      el.openUpdateBtn.setAttribute('data-unlocked', unlocked ? 'true' : 'false');
+    }
+    if (el.lockIndicator) {
+      el.lockIndicator.toggleAttribute('hidden', unlocked);
+    }
+    if (el.unlockIndicator) {
+      el.unlockIndicator.hidden = !unlocked;
+    }
+    if (el.openUpdateLabel) {
+      el.openUpdateLabel.textContent = unlocked ? 'Cập nhật' : 'Quản trị';
+    }
+    if (el.modalTitle) {
+      el.modalTitle.textContent = unlocked ? 'Cập nhật' : 'Quản trị';
+    }
+    if (el.lockPinBtn) {
+      el.lockPinBtn.hidden = !unlocked;
+    }
+    // Re-render project rows immediately so data-editable reflects admin state
+    if (state.snapshot) {
+      renderProjects(
+        state.snapshot.pinned_projects,
+        null,
+        false,
+        state.snapshot.account.monthly_price_vnd > 0
+      );
+    }
+  }
+
   function setUnlocked(pin) {
     state.editPin = pin;
     state.pinVerified = true;
     try {
       localStorage.setItem(CFG.STORAGE_PIN_KEY, pin);
     } catch (_) {}
-    if (el.unlockIndicator) el.unlockIndicator.hidden = false;
-    if (el.lockPinBtn) el.lockPinBtn.hidden = false;
+    syncAdminUiState();
   }
 
   function clearSavedPin() {
@@ -1162,8 +1253,7 @@
     try {
       localStorage.removeItem(CFG.STORAGE_PIN_KEY);
     } catch (_) {}
-    if (el.unlockIndicator) el.unlockIndicator.hidden = true;
-    if (el.lockPinBtn) el.lockPinBtn.hidden = true;
+    syncAdminUiState();
   }
 
   async function verifyPin(pin) {
@@ -1208,13 +1298,12 @@
   function openModal(options) {
     options = options || {};
     state.modalOpen = true;
-    state.pendingProjectIdForUsage = options.projectId || null;
+    state.pendingEditProjectId = options.editProjectId || null;
 
     if (options.tab) {
       state.activeTab = options.tab;
-    } else if (options.projectId) {
-      state.activeTab = 'balance';
-      state.balanceSubmode = 'usage';
+    } else if (options.editProjectId) {
+      state.activeTab = 'projects';
     }
 
     el.modal.hidden = false;
@@ -1271,19 +1360,16 @@
     el.pinGateForm.hidden = true;
     el.editorWorkspace.hidden = false;
     el.lockPinBtn.hidden = false;
+
+    if (state.pendingEditProjectId) {
+      state.selectedProjectId = state.pendingEditProjectId;
+      state.pendingEditProjectId = null;
+    }
+
     populateEditorForms();
     switchTab(state.activeTab);
     switchBalanceSubmode(state.balanceSubmode);
     switchAuditMode(state.auditMode);
-
-    if (state.pendingProjectIdForUsage) {
-      el.usageProject.value = state.pendingProjectIdForUsage;
-      toggleNewProjectInput();
-      state.pendingProjectIdForUsage = null;
-      setTimeout(function () {
-        try { el.usageAmount.focus(); } catch (_) {}
-      }, 60);
-    }
   }
 
   function clearEditorError() {
@@ -1312,7 +1398,7 @@
     el.tabCycle.hidden = tabName !== 'cycle';
 
     if (tabName === 'projects') {
-      renderProjectPicker();
+      renderProjectPickerAndLoadForm();
     } else if (tabName === 'audit') {
       switchAuditMode(state.auditMode);
       fetchAuditData(false);
@@ -1363,14 +1449,14 @@
     var prevBalProj = el.balProject.value;
     el.balProject.innerHTML = '<option value="">Không gán dự án cụ thể</option>' +
       allProjects.map(function (p) {
-        var suffix = (p.priority ? ' ★' : '') + (p.pinned ? '' : ' (Chưa ghim)');
+        var suffix = p.pinned ? '' : ' (Chưa ghim)';
         return '<option value="' + escapeHtml(p.id) + '">' + escapeHtml(p.name) + suffix + '</option>';
       }).join('');
     if (prevBalProj) el.balProject.value = prevBalProj;
 
     var prevUsageProj = el.usageProject.value;
     el.usageProject.innerHTML = allProjects.map(function (p) {
-      var suffix = (p.priority ? ' ★' : '') + (p.pinned ? '' : ' (Chưa ghim)');
+      var suffix = p.pinned ? '' : ' (Chưa ghim)';
       return '<option value="' + escapeHtml(p.id) + '">' + escapeHtml(p.name) + suffix + '</option>';
     }).join('') + '<option value="' + NEW_PROJECT_SENTINEL + '">+ Tạo dự án mới...</option>';
     if (prevUsageProj && Array.prototype.some.call(el.usageProject.options, function (o) { return o.value === prevUsageProj; })) {
@@ -1378,11 +1464,10 @@
     }
     toggleNewProjectInput();
 
-    // Pinned project selector for Audit Tab (session mode)
     var prevAuditProj = el.auditProject.value;
     if (pinnedProjects.length) {
       el.auditProject.innerHTML = pinnedProjects.map(function (p) {
-        return '<option value="' + escapeHtml(p.id) + '">' + escapeHtml(p.name) + (p.priority ? ' ★' : '') + '</option>';
+        return '<option value="' + escapeHtml(p.id) + '">' + escapeHtml(p.name) + '</option>';
       }).join('');
       if (prevAuditProj && Array.prototype.some.call(el.auditProject.options, function (o) { return o.value === prevAuditProj; })) {
         el.auditProject.value = prevAuditProj;
@@ -1391,8 +1476,9 @@
       el.auditProject.innerHTML = '<option value="">Chưa có dự án đang ghim</option>';
     }
 
+    // CRITICAL FIX: Refresh chip labels ONLY — NEVER call loadProjectIntoForm() during SSE!
     if (state.activeTab === 'projects') {
-      renderProjectPicker();
+      renderProjectPickerChipsOnly();
     }
   }
 
@@ -1435,7 +1521,7 @@
   }
 
   /* ========================================================================
-     Tab 2: Project Picker (All Projects + Pin Badge + Logo Control)
+     Tab 2: Project Picker (All Projects + Pin Badge + Instant Logo Save)
      ======================================================================== */
   function updatePinStatusBadge() {
     var isPinned = Boolean(el.projPinned.checked);
@@ -1443,7 +1529,7 @@
     el.projPinStatusBadge.textContent = isPinned ? 'Đang ghim' : 'Ẩn khỏi báo cáo';
   }
 
-  function renderProjectPicker() {
+  function renderProjectPickerChipsOnly() {
     var projects = state.snapshot ? state.snapshot.projects : [];
     var chips = [
       '<button type="button" class="chip-btn" data-pick-project="" data-active="' + (state.selectedProjectId === '' ? 'true' : 'false') + '">+ Dự án mới</button>'
@@ -1460,6 +1546,10 @@
       );
     });
     el.projectPicker.innerHTML = chips.join('');
+  }
+
+  function renderProjectPickerAndLoadForm() {
+    renderProjectPickerChipsOnly();
     loadProjectIntoForm(state.selectedProjectId);
   }
 
@@ -1477,7 +1567,6 @@
       el.projOwner.value = found.owner || '';
       el.projNote.value = found.note || '';
       el.projPinned.checked = Boolean(found.pinned);
-      el.projPriority.checked = Boolean(found.priority);
       state.projectLogoUrl = found.logo_url || '';
       el.projLogoUrl.value = state.projectLogoUrl.indexOf('data:image/') === 0 ? '' : state.projectLogoUrl;
       el.btnDeleteProject.hidden = false;
@@ -1487,10 +1576,9 @@
       el.projName.value = '';
       el.projCredits.value = '0';
       el.projStatus.value = 'active';
-      el.projOwner.value = 'Team Media';
+      el.projOwner.value = '';
       el.projNote.value = '';
       el.projPinned.checked = true;
-      el.projPriority.checked = false;
       state.projectLogoUrl = '';
       el.projLogoUrl.value = '';
       el.btnDeleteProject.hidden = true;
@@ -1508,6 +1596,7 @@
     el.cfgResetDay.value = String(acc.reset_day);
     el.cfgAccount.value = acc.account_name;
     el.cfgPlan.value = acc.plan_name;
+    el.cfgPriceVnd.value = String(acc.monthly_price_vnd != null ? acc.monthly_price_vnd : DEFAULT_MONTHLY_PRICE_VND);
     el.cfgNote.value = acc.priority_note || '';
   }
 
@@ -1590,16 +1679,29 @@
     el.lockPinBtn.addEventListener('click', function () {
       clearSavedPin();
       showPinGate();
-      showToast('Đã khóa chỉnh sửa trên thiết bị này');
+      showToast('Đã khóa chế độ quản trị trên thiết bị này');
     });
 
-    // Click project row -> 1-tap quick usage log
+    // Strict Admin-Only Project Row Click: does NOTHING when not unlocked!
     el.projectsList.addEventListener('click', function (ev) {
-      var row = ev.target.closest('.project-row');
+      if (!state.pinVerified) return;
+      var row = ev.target.closest('.project-row[data-editable="true"]');
       if (!row) return;
       var pid = row.getAttribute('data-project-id');
       if (pid) {
-        openModal({ tab: 'balance', projectId: pid });
+        openModal({ tab: 'projects', editProjectId: pid });
+      }
+    });
+
+    el.projectsList.addEventListener('keydown', function (ev) {
+      if (!state.pinVerified) return;
+      if (ev.key !== 'Enter' && ev.key !== ' ') return;
+      var row = ev.target.closest('.project-row[data-editable="true"]');
+      if (!row) return;
+      ev.preventDefault();
+      var pid = row.getAttribute('data-project-id');
+      if (pid) {
+        openModal({ tab: 'projects', editProjectId: pid });
       }
     });
 
@@ -1621,9 +1723,9 @@
         if (ok) {
           setUnlocked(pin);
           showEditorWorkspace();
-          showToast('Đã mở khóa chỉnh sửa');
+          showToast('Đã mở khóa chế độ quản trị');
         } else {
-          el.pinError.textContent = 'Mã nhóm không đúng, vui lòng thử lại.';
+          el.pinError.textContent = 'Mã quản trị không đúng, vui lòng thử lại.';
           el.pinError.hidden = false;
           el.pinInput.select();
         }
@@ -1734,12 +1836,12 @@
       }
     });
 
-    // Tab 2: Project Picker & Logo Controls
+    // Tab 2: Project Picker & Instant Logo Controls
     el.projectPicker.addEventListener('click', function (ev) {
       var btn = ev.target.closest('[data-pick-project]');
       if (!btn) return;
       state.selectedProjectId = btn.getAttribute('data-pick-project') || '';
-      renderProjectPicker();
+      renderProjectPickerAndLoadForm();
     });
 
     el.projPinned.addEventListener('change', updatePinStatusBadge);
@@ -1752,19 +1854,31 @@
       el.projLogoFile.click();
     });
 
+    // Instant 1-click Avatar Save when editing an existing project
     el.projLogoFile.addEventListener('change', async function () {
       var file = el.projLogoFile.files && el.projLogoFile.files[0];
       if (!file) return;
       clearEditorError();
+      el.btnUploadLogo.disabled = true;
       try {
         var dataUrl = await processLogoFile(file);
         state.projectLogoUrl = dataUrl;
         el.projLogoUrl.value = '';
         renderProjectLogoPreview();
+
+        var existingId = el.projId.value.trim();
+        if (existingId) {
+          await apiMutate('POST', '/api/projects', {
+            id: existingId,
+            logo_url: dataUrl
+          });
+          showToast('Đã đổi logo dự án');
+        }
       } catch (err) {
         showEditorError(err.message);
       } finally {
         el.projLogoFile.value = '';
+        el.btnUploadLogo.disabled = false;
       }
     });
 
@@ -1780,14 +1894,32 @@
       renderProjectLogoPreview();
     });
 
-    el.btnClearLogo.addEventListener('click', function () {
+    // Instant 1-click Avatar Clear when editing an existing project
+    el.btnClearLogo.addEventListener('click', async function () {
+      clearEditorError();
       state.projectLogoUrl = '';
       el.projLogoUrl.value = '';
       el.projLogoFile.value = '';
       renderProjectLogoPreview();
+
+      var existingId = el.projId.value.trim();
+      if (existingId) {
+        el.btnClearLogo.disabled = true;
+        try {
+          await apiMutate('POST', '/api/projects', {
+            id: existingId,
+            logo_url: ''
+          });
+          showToast('Đã xóa logo dự án');
+        } catch (err) {
+          showEditorError(err.message);
+        } finally {
+          el.btnClearLogo.disabled = false;
+        }
+      }
     });
 
-    // Tab 2: Save Project (includes pinned + logo_url)
+    // Tab 2: Save Project (includes pinned + logo_url, no priority field)
     el.formProject.addEventListener('submit', async function (ev) {
       ev.preventDefault();
       clearEditorError();
@@ -1810,10 +1942,9 @@
           name: name,
           credits_used: creditsUsed,
           status: el.projStatus.value,
-          owner: el.projOwner.value.trim() || 'Team Media',
+          owner: el.projOwner.value.trim(),
           note: el.projNote.value.trim(),
           pinned: Boolean(el.projPinned.checked),
-          priority: Boolean(el.projPriority.checked),
           logo_url: logoVal
         };
         if (el.projId.value) {
@@ -1822,7 +1953,7 @@
         await apiMutate('POST', '/api/projects', payload);
         showToast(el.projId.value ? ('Đã cập nhật dự án ' + name) : ('Đã thêm dự án ' + name));
         state.selectedProjectId = '';
-        renderProjectPicker();
+        renderProjectPickerAndLoadForm();
       } catch (err) {
         showEditorError(err.message);
       } finally {
@@ -1843,7 +1974,7 @@
         await apiMutate('DELETE', '/api/projects/' + encodeURIComponent(id));
         state.selectedProjectId = '';
         showToast('Đã xóa dự án');
-        renderProjectPicker();
+        renderProjectPickerAndLoadForm();
       } catch (err) {
         showEditorError(err.message);
       } finally {
@@ -1919,18 +2050,23 @@
       }
     });
 
-    // Tab 4: Update Account & Cycle Config
+    // Tab 4: Update Account, VND Price & Cycle Config
     el.formConfig.addEventListener('submit', async function (ev) {
       ev.preventDefault();
       clearEditorError();
       var quota = Math.round(Number(el.cfgQuota.value));
       var resetDay = Math.round(Number(el.cfgResetDay.value));
+      var priceVnd = Math.round(Number(el.cfgPriceVnd.value || 0));
       if (!Number.isFinite(quota) || quota <= 0) {
         showEditorError('Hạn mức tháng không hợp lệ.');
         return;
       }
       if (!Number.isFinite(resetDay) || resetDay < 1 || resetDay > 31) {
         showEditorError('Ngày reset hợp lệ từ 1 đến 31.');
+        return;
+      }
+      if (!Number.isFinite(priceVnd) || priceVnd < 0) {
+        showEditorError('Giá gói tháng (VNĐ) phải là số không âm.');
         return;
       }
 
@@ -1941,6 +2077,7 @@
           reset_day: resetDay,
           account_name: el.cfgAccount.value.trim(),
           plan_name: el.cfgPlan.value.trim(),
+          monthly_price_vnd: priceVnd,
           priority_note: el.cfgNote.value.trim()
         });
         showToast('Đã lưu cấu hình chu kỳ');
@@ -2002,6 +2139,7 @@
   function init() {
     cacheElements();
     initTheme();
+    syncAdminUiState();
     updateApiDisplay();
     bindEvents();
 

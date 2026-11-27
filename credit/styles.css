@@ -1,6 +1,6 @@
 /* ==========================================================================
-   GOSU Credit Manager — Apple-Minimalist Design System (v1.1)
-   Observation-first · Generous whitespace · Crisp tabular numbers · Zero clutter
+   GOSU Credit Manager — Apple-Minimalist Design System (v1.5)
+   Observation-first · Strict Admin Editing · Clean Projects Focus · Subtle VND
    ========================================================================== */
 
 :root {
@@ -28,6 +28,7 @@
   --bg-ambient: radial-gradient(900px 420px at 50% -140px, rgba(255, 255, 255, 0.045), transparent 70%);
   --bg-header: rgba(9, 9, 11, 0.78);
   --bg-card: #121215;
+  --bg-card-subtle: #0e0e11;
   --bg-card-elevated: #17171b;
   --bg-surface-subtle: rgba(255, 255, 255, 0.04);
   --bg-surface-hover: rgba(255, 255, 255, 0.055);
@@ -68,16 +69,10 @@
   --status-critical-soft: rgba(255, 69, 58, 0.15);
   --status-critical-bar: linear-gradient(90deg, #ef4444 0%, #fb7185 100%);
 
-  --priority-bg: rgba(255, 159, 10, 0.13);
-  --priority-fg: #ffb340;
-  --priority-border: rgba(255, 159, 10, 0.24);
-  --priority-bar: #f5f5f7;
-  --standard-bar: rgba(245, 245, 247, 0.34);
+  --project-bar: rgba(245, 245, 247, 0.56);
 
   --logo-fallback-bg: rgba(255, 255, 255, 0.06);
   --logo-fallback-fg: #d4d4dc;
-  --logo-priority-bg: rgba(255, 159, 10, 0.12);
-  --logo-priority-fg: #ffb340;
 
   --shadow-card: 0 1px 0 rgba(255, 255, 255, 0.03) inset, 0 14px 36px rgba(0, 0, 0, 0.34);
   --shadow-modal: 0 24px 64px rgba(0, 0, 0, 0.65), 0 0 0 1px rgba(255, 255, 255, 0.08);
@@ -96,6 +91,7 @@
   --bg-ambient: radial-gradient(900px 420px at 50% -140px, rgba(0, 0, 0, 0.03), transparent 70%);
   --bg-header: rgba(245, 245, 247, 0.82);
   --bg-card: #ffffff;
+  --bg-card-subtle: rgba(255, 255, 255, 0.68);
   --bg-card-elevated: #ffffff;
   --bg-surface-subtle: rgba(0, 0, 0, 0.032);
   --bg-surface-hover: rgba(0, 0, 0, 0.038);
@@ -136,16 +132,10 @@
   --status-critical-soft: rgba(215, 0, 21, 0.1);
   --status-critical-bar: linear-gradient(90deg, #dc2626 0%, #ef4444 100%);
 
-  --priority-bg: rgba(180, 95, 0, 0.09);
-  --priority-fg: #9a5200;
-  --priority-border: rgba(180, 95, 0, 0.2);
-  --priority-bar: #1d1d1f;
-  --standard-bar: rgba(29, 29, 31, 0.28);
+  --project-bar: rgba(29, 29, 31, 0.48);
 
   --logo-fallback-bg: rgba(0, 0, 0, 0.045);
   --logo-fallback-fg: #48484d;
-  --logo-priority-bg: rgba(180, 95, 0, 0.09);
-  --logo-priority-fg: #9a5200;
 
   --shadow-card: 0 1px 2px rgba(0, 0, 0, 0.03), 0 8px 24px rgba(0, 0, 0, 0.035);
   --shadow-modal: 0 24px 60px rgba(0, 0, 0, 0.16), 0 0 0 1px rgba(0, 0, 0, 0.06);
@@ -371,7 +361,7 @@ button {
   height: 15px;
 }
 
-/* Declarative theme icon visibility (SVGElement lacks HTMLElement.hidden IDL) */
+/* Declarative SVG icon visibility (SVGElement lacks HTMLElement.hidden IDL) */
 [data-theme="dark"] #icon-moon,
 [data-theme="light"] #icon-sun {
   display: none;
@@ -384,7 +374,7 @@ button {
   justify-content: center;
   gap: 6px;
   height: 32px;
-  padding: 0 14px;
+  padding: 0 13px;
   border: none;
   border-radius: var(--radius-pill);
   background: var(--btn-primary-bg);
@@ -414,6 +404,33 @@ button {
   padding: 0 18px;
   border-radius: var(--radius-sm);
   font-size: 13.5px;
+}
+
+.primary-btn[data-unlocked="false"] {
+  background: var(--bg-surface-subtle);
+  color: var(--text-secondary);
+  border: 1px solid var(--border);
+}
+
+.primary-btn[data-unlocked="false"]:hover {
+  background: var(--bg-surface-hover);
+  color: var(--text-primary);
+  border-color: var(--border-strong);
+}
+
+.lock-icon {
+  width: 12px;
+  height: 12px;
+  flex-shrink: 0;
+  opacity: 0.85;
+}
+
+.primary-btn[data-unlocked="true"] .lock-icon {
+  display: none;
+}
+
+.primary-btn[data-unlocked="false"] .unlock-dot {
+  display: none;
 }
 
 .unlock-dot {
@@ -483,7 +500,7 @@ button {
   border: none;
   padding: 4px 7px;
   border-radius: 6px;
-  font-size: 12.5px;
+  font-size: 12px;
   font-weight: 500;
   color: var(--text-secondary);
   transition: color 140ms var(--ease-std), background-color 140ms var(--ease-std);
@@ -500,10 +517,10 @@ button {
 .container {
   max-width: var(--max-width);
   margin: 0 auto;
-  padding: 28px 20px 56px;
+  padding: 26px 20px 48px;
   display: flex;
   flex-direction: column;
-  gap: 28px;
+  gap: 24px;
 }
 
 .status-banner {
@@ -532,7 +549,7 @@ button {
   background: var(--bg-card);
   border: 1px solid var(--border);
   border-radius: var(--radius-lg);
-  padding: 26px 28px 22px;
+  padding: 24px 26px 20px;
   box-shadow: var(--shadow-card);
   transition: border-color 220ms var(--ease-std), background-color 220ms var(--ease-std);
 }
@@ -543,7 +560,7 @@ button {
   justify-content: space-between;
   gap: 12px;
   flex-wrap: wrap;
-  margin-bottom: 18px;
+  margin-bottom: 16px;
 }
 
 .account-identity {
@@ -585,7 +602,7 @@ button {
   justify-content: space-between;
   gap: 16px;
   flex-wrap: wrap;
-  margin-bottom: 8px;
+  margin-bottom: 16px;
 }
 
 .balance-primary {
@@ -596,7 +613,7 @@ button {
 }
 
 .balance-number {
-  font-size: clamp(2.5rem, 6vw, 3.75rem);
+  font-size: clamp(2.5rem, 6vw, 3.65rem);
   font-weight: 650;
   line-height: 1;
   letter-spacing: -0.04em;
@@ -658,18 +675,9 @@ button {
   white-space: nowrap;
 }
 
-/* Quiet Wallet Breakdown Line */
-.wallet-breakdown {
-  font-size: 12.5px;
-  color: var(--text-tertiary);
-  margin-bottom: 16px;
-  letter-spacing: -0.005em;
-}
-
 /* Progress Track */
 .progress-wrap {
-  margin-top: 10px;
-  margin-bottom: 24px;
+  margin-bottom: 22px;
 }
 
 .progress-track {
@@ -758,24 +766,40 @@ button {
   text-overflow: ellipsis;
 }
 
-/* Priority Note Footer */
-.hero-note {
-  margin-top: 22px;
-  padding-top: 15px;
+/* Quiet Hero Footer: General Note + Subtle Secondary VND Estimate */
+.hero-footer {
+  margin-top: 20px;
+  padding-top: 13px;
   border-top: 1px solid var(--border-subtle);
   display: flex;
   align-items: center;
-  gap: 9px;
-  font-size: 13px;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  column-gap: 16px;
+  row-gap: 6px;
+}
+
+.hero-note {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12.5px;
   color: var(--text-secondary);
 }
 
 .hero-note-dot {
-  width: 6px;
-  height: 6px;
+  width: 5px;
+  height: 5px;
   border-radius: 50%;
-  background: var(--status-watch);
+  background: var(--text-tertiary);
   flex-shrink: 0;
+}
+
+.hero-vnd-meta {
+  font-size: 12px;
+  color: var(--text-tertiary);
+  white-space: nowrap;
+  margin-left: auto;
 }
 
 /* ==========================================================================
@@ -785,6 +809,11 @@ button {
   display: flex;
   flex-direction: column;
   gap: 12px;
+}
+
+.section--logs {
+  gap: 8px;
+  margin-top: 2px;
 }
 
 .section-header {
@@ -805,15 +834,21 @@ button {
 
 .section-title {
   margin: 0;
-  font-size: 14px;
+  font-size: 14.5px;
   font-weight: 600;
   letter-spacing: -0.015em;
   color: var(--text-primary);
   white-space: nowrap;
 }
 
+.section-title--subtle {
+  font-size: 12.5px;
+  font-weight: 540;
+  color: var(--text-secondary);
+}
+
 .section-count {
-  font-size: 12px;
+  font-size: 11.5px;
   font-weight: 500;
   color: var(--text-tertiary);
   padding: 1px 7px;
@@ -835,18 +870,23 @@ button {
   box-shadow: var(--shadow-card);
 }
 
-/* Project Rows with Crisp 36x36 Rounded-Square Logo */
+.list-card--compact {
+  background: var(--bg-card-subtle);
+  border-color: var(--border-subtle);
+  border-radius: var(--radius-md);
+  box-shadow: none;
+}
+
+/* Project Rows — Read-Only by Default, Admin Editable on Unlock */
 .project-row {
   width: 100%;
-  border: none;
-  background: transparent;
-  text-align: left;
   padding: 14px 20px;
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 16px;
   border-bottom: 1px solid var(--border-subtle);
+  cursor: default;
   transition: background-color 140ms var(--ease-std);
 }
 
@@ -854,11 +894,15 @@ button {
   border-bottom: none;
 }
 
-.project-row:hover {
+.project-row[data-editable="true"] {
+  cursor: pointer;
+}
+
+.project-row[data-editable="true"]:hover {
   background: var(--bg-surface-hover);
 }
 
-.project-row:focus-visible {
+.project-row[data-editable="true"]:focus-visible {
   outline: 2px solid var(--accent-blue);
   outline-offset: -2px;
 }
@@ -886,12 +930,6 @@ button {
   font-weight: 650;
   letter-spacing: -0.02em;
   user-select: none;
-}
-
-.project-row[data-priority="true"] .project-logo:not([data-has-img="true"]) {
-  background: var(--logo-priority-bg);
-  color: var(--logo-priority-fg);
-  border-color: var(--priority-border);
 }
 
 .project-logo-img {
@@ -928,19 +966,18 @@ button {
   color: var(--text-secondary);
 }
 
-.priority-pill {
-  display: inline-flex;
-  align-items: center;
-  height: 20px;
-  padding: 0 7px;
-  border-radius: var(--radius-pill);
-  font-size: 11px;
-  font-weight: 600;
-  letter-spacing: 0.01em;
-  background: var(--priority-bg);
-  color: var(--priority-fg);
-  border: 1px solid var(--priority-border);
-  white-space: nowrap;
+.project-edit-icon {
+  width: 13px;
+  height: 13px;
+  color: var(--text-tertiary);
+  opacity: 0;
+  flex-shrink: 0;
+  transition: opacity 150ms var(--ease-std);
+}
+
+.project-row[data-editable="true"]:hover .project-edit-icon,
+.project-row[data-editable="true"]:focus-visible .project-edit-icon {
+  opacity: 0.85;
 }
 
 .status-chip {
@@ -956,15 +993,11 @@ button {
   width: 6px;
   height: 6px;
   border-radius: 50%;
-  background: var(--status-safe);
+  background: var(--text-tertiary);
 }
 
 .status-chip[data-status="paused"] .status-dot {
   background: var(--status-watch);
-}
-
-.status-chip[data-status="done"] .status-dot {
-  background: var(--text-tertiary);
 }
 
 .project-meta {
@@ -980,8 +1013,8 @@ button {
   display: flex;
   flex-direction: column;
   align-items: flex-end;
-  gap: 7px;
-  min-width: 122px;
+  gap: 6px;
+  min-width: 132px;
 }
 
 .project-numbers {
@@ -1000,15 +1033,14 @@ button {
   margin: -1px -4px;
 }
 
-.project-share {
-  font-size: 12px;
+.project-submetrics {
+  font-size: 11.5px;
   color: var(--text-tertiary);
-  min-width: 38px;
-  text-align: right;
+  white-space: nowrap;
 }
 
 .project-bar-track {
-  width: 112px;
+  width: 116px;
   height: 4px;
   border-radius: var(--radius-pill);
   background: var(--bg-track);
@@ -1018,25 +1050,22 @@ button {
 .project-bar-fill {
   height: 100%;
   border-radius: var(--radius-pill);
-  background: var(--standard-bar);
+  background: var(--project-bar);
   transition: width 520ms var(--ease-out);
 }
 
-.project-row[data-priority="true"] .project-bar-fill {
-  background: var(--priority-bar);
-}
-
 /* ==========================================================================
-   Recent Updates Timeline
+   Ultra-Compact Recent Updates Timeline (3 rows default)
    ========================================================================== */
 .log-row {
-  padding: 12px 20px;
+  padding: 7px 16px;
   display: grid;
-  grid-template-columns: 74px 72px minmax(0, 1fr) auto;
+  grid-template-columns: 56px 58px minmax(0, 1fr) auto;
   align-items: center;
-  gap: 12px;
+  gap: 10px;
   border-bottom: 1px solid var(--border-subtle);
-  font-size: 13px;
+  font-size: 11.5px;
+  line-height: 1.35;
 }
 
 .log-row:last-child {
@@ -1044,7 +1073,7 @@ button {
 }
 
 .log-time {
-  font-size: 12px;
+  font-size: 11px;
   color: var(--text-tertiary);
   white-space: nowrap;
 }
@@ -1053,18 +1082,18 @@ button {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  height: 22px;
-  padding: 0 8px;
-  border-radius: 6px;
-  font-size: 12px;
-  font-weight: 600;
+  height: 18px;
+  padding: 0 6px;
+  border-radius: 5px;
+  font-size: 11px;
+  font-weight: 560;
   background: var(--bg-surface-subtle);
   color: var(--text-secondary);
   white-space: nowrap;
 }
 
 .log-delta[data-kind="spend"] {
-  color: var(--text-primary);
+  color: var(--text-secondary);
   background: var(--bg-surface-subtle);
 }
 
@@ -1087,29 +1116,30 @@ button {
   min-width: 0;
   display: flex;
   align-items: baseline;
-  gap: 7px;
+  gap: 6px;
   overflow: hidden;
 }
 
 .log-project {
-  font-weight: 550;
-  color: var(--text-primary);
+  font-weight: 540;
+  color: var(--text-secondary);
   white-space: nowrap;
   flex-shrink: 0;
 }
 
 .log-note {
-  color: var(--text-secondary);
+  color: var(--text-tertiary);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
 
 .log-actor {
-  font-size: 12px;
+  font-size: 11px;
   color: var(--text-tertiary);
   white-space: nowrap;
   text-align: right;
+  opacity: 0.85;
 }
 
 .empty-state {
@@ -1120,8 +1150,8 @@ button {
 }
 
 .empty-state.compact {
-  padding: 18px 14px;
-  font-size: 12.5px;
+  padding: 14px 14px;
+  font-size: 12px;
 }
 
 /* ==========================================================================
@@ -1155,12 +1185,12 @@ button {
 .footer {
   max-width: var(--max-width);
   margin: 0 auto;
-  padding: 0 24px 36px;
+  padding: 0 24px 32px;
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  font-size: 12px;
+  font-size: 11.5px;
   color: var(--text-tertiary);
 }
 
@@ -1171,7 +1201,7 @@ button {
 }
 
 /* ==========================================================================
-   Quick Update Sheet / Modal
+   Admin Quick Update Sheet / Modal
    ========================================================================== */
 .modal-backdrop {
   position: fixed;
@@ -1843,12 +1873,12 @@ button {
   }
 
   .container {
-    padding: 18px 14px 44px;
-    gap: 22px;
+    padding: 18px 14px 40px;
+    gap: 20px;
   }
 
   .hero-card {
-    padding: 20px 18px 18px;
+    padding: 20px 18px 16px;
   }
 
   .kpi-strip {
@@ -1874,6 +1904,10 @@ button {
     align-items: flex-end;
   }
 
+  .hero-vnd-meta {
+    margin-left: 0;
+  }
+
   .project-row {
     padding: 13px 15px;
     gap: 11px;
@@ -1884,17 +1918,17 @@ button {
   }
 
   .project-metrics {
-    min-width: 92px;
+    min-width: 102px;
   }
 
   .project-bar-track {
-    width: 82px;
+    width: 88px;
   }
 
   .log-row {
-    padding: 11px 16px;
-    grid-template-columns: 60px 66px minmax(0, 1fr);
-    gap: 8px;
+    padding: 7px 14px;
+    grid-template-columns: 48px 54px minmax(0, 1fr);
+    gap: 7px;
   }
 
   .log-actor {
@@ -1902,7 +1936,7 @@ button {
   }
 
   .footer {
-    padding: 0 16px 32px;
+    padding: 0 16px 28px;
     flex-direction: column;
     align-items: flex-start;
     gap: 4px;
@@ -1958,7 +1992,7 @@ button {
   }
 
   .primary-btn {
-    padding: 0 12px;
+    padding: 0 11px;
     font-size: 12.5px;
   }
 }
